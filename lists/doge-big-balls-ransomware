@@ -1,0 +1,20 @@
+whoami:reconnaissance
+hostname:reconnaissance
+ipconfig:reconnaissance
+systeminfo:reconnaissance
+net user:reconnaissance
+net localgroup:reconnaissance
+net group:reconnaissance
+net share:reconnaissance
+net view:reconnaissance
+tasklist:reconnaissance
+wmic:reconnaissance
+nltest:reconnaissance
+dsquery:reconnaissance
+gpresult:reconnaissance
+netstat:reconnaissance
+arp:reconnaissance
+route:reconnaissance
+nslookup:reconnaissance
+ping:reconnaissance
+tracert:reconnaissance
