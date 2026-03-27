@@ -1,0 +1,81 @@
+<group name="linux,packetbeat,">
+    <rule id="104146" level="3">
+        <decoded_as>json</decoded_as>
+        <field name="method">QUERY</field>
+        <field name="dns.resolved_ip">\.+</field>
+        <mitre>
+          <id>T1071</id>
+        </mitre>
+        <description>Linux: DNS Query to $(dns.question.name)</description>
+        <options>no_full_log</options>
+        <group>dns</group>
+    </rule>
+    <rule id="104147" level="3">
+        <decoded_as>json</decoded_as>
+        <field name="event.dataset">tls</field>
+        <field name="tls.established">true</field>
+        <mitre>
+          <id>T1071</id>
+        </mitre>
+        <description>Linux: HTTPS connection established to $(tls.client.server_name)</description>
+        <options>no_full_log</options>
+        <group>tls</group>
+    </rule>
+    <rule id="104148" level="3">
+        <decoded_as>json</decoded_as>
+        <field name="type">http</field>
+        <mitre>
+          <id>T1071</id>
+        </mitre>
+        <description>Linux: HTTP connection established to $(destination.ip)</description>
+        <options>no_full_log</options>
+        <group>http</group>
+    </rule>
+<!-- EXCLUDE PACKETBEAT ICMP -->
+
+    <rule id="104149" level="1">
+        <decoded_as>json</decoded_as>
+        <field name="network.transport">icmp</field>
+        <mitre>
+          <id>T1071</id>
+        </mitre>
+        <description>Packetbeat: ICMP flow to $(destination.ip)</description>
+        <options>no_full_log</options>
+        <group>icmp</group>
+    </rule>
+
+</group>
+
+<!-- Rule to exclude noisy logs -->
+<group name="linux,packetbeat,exclude,">
+    <rule id="104150" level="1" frequency="2" timeframe="900">
+        <if_matched_sid>104146</if_matched_sid>
+        <same_field>dns.question.name</same_field>
+        <mitre>
+          <id>T1071</id>
+        </mitre>
+        <description>Linux: Frequent DNS Query</description>
+        <options>no_log</options>
+        <group>dns</group>
+    </rule>
+    <rule id="104151" level="1" frequency="2" timeframe="900">
+        <if_matched_sid>104147</if_matched_sid>
+        <same_field>tls.client.server_name</same_field>
+        <mitre>
+          <id>T1071</id>
+        </mitre>
+        <description>Linux: Frequent HTTPS Connection</description>
+        <options>no_full_log</options>
+        <group>tls</group>
+    </rule>
+    <rule id="104152" level="1" frequency="2" timeframe="900">
+        <if_matched_sid>104148</if_matched_sid>
+        <same_field>destination.ip</same_field>
+        <mitre>
+          <id>T1071</id>
+        </mitre>
+        <description>Linux: Frequent HTTP Connection</description>
+        <options>no_full_log</options>
+        <group>http</group>
+    </rule>
+</group>

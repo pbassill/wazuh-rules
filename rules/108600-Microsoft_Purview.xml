@@ -1,0 +1,321 @@
+<!--
+  Microsoft Purview Rules
+  Rule IDs: 108600–108699
+
+  Provides detection for Microsoft Purview audit events ingested
+  via the Wazuh Office 365 module or syslog forwarding.
+
+  Microsoft Purview Areas Covered:
+    DLP                      — Data Loss Prevention policy matches
+    Sensitivity Labels       — Information protection label events
+    Insider Risk Management  — Insider risk alerts and investigations
+    eDiscovery               — Search, hold, and export activities
+    Communication Compliance — Policy matches in communications
+    Records Management       — Retention label and disposition events
+    Audit                    — Configuration and policy changes
+-->
+
+<group name="microsoft_purview,">
+
+  <!-- ===== Base Microsoft Purview Rule (JSON via O365 module) ===== -->
+
+  <rule id="108600" level="3">
+    <decoded_as>json</decoded_as>
+    <field name="Workload" type="pcre2">(?i)purview|compliance</field>
+    <description>Microsoft Purview: $(Operation) event detected.</description>
+    <options>no_full_log</options>
+    <group>purview_base,</group>
+  </rule>
+
+  <!-- ===== Base Microsoft Purview Rule (syslog-forwarded) ===== -->
+
+  <rule id="108601" level="3">
+    <decoded_as>microsoft-purview</decoded_as>
+    <description>Microsoft Purview: Syslog event detected.</description>
+    <options>no_full_log</options>
+    <group>purview_base,</group>
+  </rule>
+
+  <!-- ===== DLP Events ===== -->
+
+  <rule id="108610" level="10">
+    <if_sid>108600</if_sid>
+    <field name="Operation" type="pcre2">(?i)DlpRuleMatch</field>
+    <description>Microsoft Purview DLP: Policy rule match — $(ExchangeMetaData.Subject).</description>
+    <mitre>
+      <id>T1048</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>purview_dlp,data_loss_prevention,</group>
+  </rule>
+
+  <rule id="108611" level="12">
+    <if_sid>108600</if_sid>
+    <field name="Operation" type="pcre2">(?i)DlpRuleUndo</field>
+    <description>Microsoft Purview DLP: Policy rule action undone by user.</description>
+    <mitre>
+      <id>T1562.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>purview_dlp,policy_override,</group>
+  </rule>
+
+  <rule id="108612" level="5">
+    <if_sid>108600</if_sid>
+    <field name="Operation" type="pcre2">(?i)DlpInfo</field>
+    <description>Microsoft Purview DLP: Informational DLP event detected.</description>
+    <options>no_full_log</options>
+    <group>purview_dlp,</group>
+  </rule>
+
+  <rule id="108613" level="13">
+    <if_sid>108600</if_sid>
+    <field name="Operation" type="pcre2">(?i)DlpPolicyRemoved</field>
+    <description>Microsoft Purview DLP: DLP policy removed.</description>
+    <mitre>
+      <id>T1562.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>purview_dlp,policy_change,</group>
+  </rule>
+
+  <rule id="108614" level="5">
+    <if_sid>108600</if_sid>
+    <field name="Operation" type="pcre2">(?i)DlpPolicyChanged</field>
+    <description>Microsoft Purview DLP: DLP policy modified.</description>
+    <mitre>
+      <id>T1562.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>purview_dlp,policy_change,</group>
+  </rule>
+
+  <!-- ===== Sensitivity Label Events ===== -->
+
+  <rule id="108620" level="3">
+    <if_sid>108600</if_sid>
+    <field name="Operation" type="pcre2">(?i)SensitivityLabelApplied</field>
+    <description>Microsoft Purview: Sensitivity label applied by $(UserId).</description>
+    <options>no_full_log</options>
+    <group>purview_labels,</group>
+  </rule>
+
+  <rule id="108621" level="8">
+    <if_sid>108600</if_sid>
+    <field name="Operation" type="pcre2">(?i)SensitivityLabelRemoved</field>
+    <description>Microsoft Purview: Sensitivity label removed by $(UserId).</description>
+    <mitre>
+      <id>T1562.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>purview_labels,</group>
+  </rule>
+
+  <rule id="108622" level="5">
+    <if_sid>108600</if_sid>
+    <field name="Operation" type="pcre2">(?i)SensitivityLabelChanged</field>
+    <description>Microsoft Purview: Sensitivity label changed by $(UserId).</description>
+    <options>no_full_log</options>
+    <group>purview_labels,</group>
+  </rule>
+
+  <rule id="108623" level="10">
+    <if_sid>108600</if_sid>
+    <field name="Operation" type="pcre2">(?i)SensitivityLabelPolicyChanged</field>
+    <description>Microsoft Purview: Sensitivity label policy modified.</description>
+    <mitre>
+      <id>T1562.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>purview_labels,policy_change,</group>
+  </rule>
+
+  <!-- ===== Insider Risk Management Events ===== -->
+
+  <rule id="108630" level="12">
+    <if_sid>108600</if_sid>
+    <field name="Operation" type="pcre2">(?i)InsiderRiskAlertCreated</field>
+    <description>Microsoft Purview Insider Risk: Alert created for $(UserId).</description>
+    <mitre>
+      <id>T1048</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>purview_insider_risk,</group>
+  </rule>
+
+  <rule id="108631" level="14">
+    <if_sid>108600</if_sid>
+    <field name="Operation" type="pcre2">(?i)InsiderRiskCaseCreated</field>
+    <description>Microsoft Purview Insider Risk: Investigation case created.</description>
+    <mitre>
+      <id>T1048</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>purview_insider_risk,</group>
+  </rule>
+
+  <rule id="108632" level="10">
+    <if_sid>108600</if_sid>
+    <field name="Operation" type="pcre2">(?i)InsiderRiskAlertDismissed</field>
+    <description>Microsoft Purview Insider Risk: Alert dismissed.</description>
+    <options>no_full_log</options>
+    <group>purview_insider_risk,</group>
+  </rule>
+
+  <rule id="108633" level="13">
+    <if_sid>108600</if_sid>
+    <field name="Operation" type="pcre2">(?i)InsiderRiskPolicyDisabled</field>
+    <description>Microsoft Purview Insider Risk: Policy disabled.</description>
+    <mitre>
+      <id>T1562.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>purview_insider_risk,policy_change,</group>
+  </rule>
+
+  <!-- ===== eDiscovery Events ===== -->
+
+  <rule id="108640" level="8">
+    <if_sid>108600</if_sid>
+    <field name="Operation" type="pcre2">(?i)SearchCreated</field>
+    <description>Microsoft Purview eDiscovery: Content search created by $(UserId).</description>
+    <mitre>
+      <id>T1114.003</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>purview_ediscovery,</group>
+  </rule>
+
+  <rule id="108641" level="10">
+    <if_sid>108600</if_sid>
+    <field name="Operation" type="pcre2">(?i)SearchExported</field>
+    <description>Microsoft Purview eDiscovery: Search results exported by $(UserId).</description>
+    <mitre>
+      <id>T1114.003</id>
+      <id>T1005</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>purview_ediscovery,data_exfiltration,</group>
+  </rule>
+
+  <rule id="108642" level="8">
+    <if_sid>108600</if_sid>
+    <field name="Operation" type="pcre2">(?i)HoldCreated</field>
+    <description>Microsoft Purview eDiscovery: Legal hold created.</description>
+    <options>no_full_log</options>
+    <group>purview_ediscovery,</group>
+  </rule>
+
+  <rule id="108643" level="10">
+    <if_sid>108600</if_sid>
+    <field name="Operation" type="pcre2">(?i)HoldRemoved</field>
+    <description>Microsoft Purview eDiscovery: Legal hold removed.</description>
+    <options>no_full_log</options>
+    <group>purview_ediscovery,</group>
+  </rule>
+
+  <rule id="108644" level="10">
+    <if_sid>108600</if_sid>
+    <field name="Operation" type="pcre2">(?i)CaseDeleted</field>
+    <description>Microsoft Purview eDiscovery: Case deleted by $(UserId).</description>
+    <options>no_full_log</options>
+    <group>purview_ediscovery,</group>
+  </rule>
+
+  <!-- ===== Communication Compliance Events ===== -->
+
+  <rule id="108650" level="10">
+    <if_sid>108600</if_sid>
+    <field name="Operation" type="pcre2">(?i)ComplianceAlertCreated</field>
+    <description>Microsoft Purview Communication Compliance: Alert triggered.</description>
+    <options>no_full_log</options>
+    <group>purview_communication_compliance,</group>
+  </rule>
+
+  <rule id="108651" level="12">
+    <if_sid>108600</if_sid>
+    <field name="Operation" type="pcre2">(?i)CompliancePolicyRemoved</field>
+    <description>Microsoft Purview Communication Compliance: Policy removed.</description>
+    <mitre>
+      <id>T1562.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>purview_communication_compliance,policy_change,</group>
+  </rule>
+
+  <!-- ===== Records Management Events ===== -->
+
+  <rule id="108660" level="5">
+    <if_sid>108600</if_sid>
+    <field name="Operation" type="pcre2">(?i)RetentionLabelApplied</field>
+    <description>Microsoft Purview Records: Retention label applied.</description>
+    <options>no_full_log</options>
+    <group>purview_records,</group>
+  </rule>
+
+  <rule id="108661" level="8">
+    <if_sid>108600</if_sid>
+    <field name="Operation" type="pcre2">(?i)RetentionLabelRemoved</field>
+    <description>Microsoft Purview Records: Retention label removed.</description>
+    <options>no_full_log</options>
+    <group>purview_records,</group>
+  </rule>
+
+  <rule id="108662" level="10">
+    <if_sid>108600</if_sid>
+    <field name="Operation" type="pcre2">(?i)RetentionPolicyRemoved</field>
+    <description>Microsoft Purview Records: Retention policy removed.</description>
+    <mitre>
+      <id>T1562.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>purview_records,policy_change,</group>
+  </rule>
+
+  <!-- ===== Audit and Configuration Events ===== -->
+
+  <rule id="108670" level="5">
+    <if_sid>108600</if_sid>
+    <field name="Operation" type="pcre2">(?i)AuditPolicyChanged</field>
+    <description>Microsoft Purview: Audit policy changed.</description>
+    <mitre>
+      <id>T1562.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>purview_audit,policy_change,</group>
+  </rule>
+
+  <rule id="108671" level="10">
+    <if_sid>108600</if_sid>
+    <field name="Operation" type="pcre2">(?i)AuditPolicyRemoved</field>
+    <description>Microsoft Purview: Audit policy removed.</description>
+    <mitre>
+      <id>T1562.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>purview_audit,policy_change,</group>
+  </rule>
+
+  <rule id="108672" level="12">
+    <if_sid>108600</if_sid>
+    <field name="Operation" type="pcre2">(?i)AdminRoleAssigned</field>
+    <description>Microsoft Purview: Admin role assigned to $(UserId).</description>
+    <mitre>
+      <id>T1078</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>purview_audit,privilege_escalation,</group>
+  </rule>
+
+  <rule id="108673" level="12">
+    <if_sid>108600</if_sid>
+    <field name="Operation" type="pcre2">(?i)AdminRoleRemoved</field>
+    <description>Microsoft Purview: Admin role removed from $(UserId).</description>
+    <mitre>
+      <id>T1078</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>purview_audit,</group>
+  </rule>
+
+</group>

@@ -1,0 +1,107 @@
+<group name="cisco,meraki,">
+
+  <!-- Generic catch-all -->
+  <rule id="102600" level="1">
+    <decoded_as>json</decoded_as>
+    <description>Generic Meraki event</description>
+    <group>meraki</group>
+  </rule>
+
+  <!-- ===== IDS / SNORT Alerts ===== -->
+  <rule id="102601" level="13">
+    <if_group>meraki</if_group>
+    <field name="merevent">ids_alerted</field>
+    <description>Meraki IDS Alert: $(mermessage) - Signature: $(mersnortsig)</description>
+    <group>meraki,ids,attack_detection</group>
+  </rule>
+
+  <!-- ===== Malware / Threat Detection ===== -->
+  <rule id="102602" level="14">
+    <if_group>meraki</if_group>
+    <field name="merevent">security_filtering_file_scanned</field>
+    <description>Malware scan: File scanned on Meraki device - $(mermessage)</description>
+    <group>meraki,malware,threat_detection</group>
+  </rule>
+
+  <rule id="102603" level="14">
+    <if_group>meraki</if_group>
+    <field name="merevent">security_filtering_disposition_change</field>
+    <description>Malware disposition changed: $(mermessage)</description>
+    <group>meraki,malware,threat_management</group>
+  </rule>
+
+  <!-- ===== Firewall Deny Events ===== -->
+  <rule id="102604" level="12">
+    <if_group>meraki</if_group>
+    <field name="merevent">firewall</field>
+    <match>deny</match>
+    <description>Firewall Denied Connection - $(srcip):$(srcport) to $(dstip):$(dstport), protocol: $(protocol)</description>
+    <group>meraki,firewall,access_denied</group>
+  </rule>
+
+  <!-- VPN traffic denied (more critical than normal deny) -->
+  <rule id="102605" level="13">
+    <if_group>meraki</if_group>
+    <field name="merevent">vpn_firewall</field>
+    <match>deny</match>
+    <description>VPN Firewall Denied Connection - $(srcip) to $(dstip)</description>
+    <group>meraki,vpn,firewall</group>
+  </rule>
+
+  <!-- ===== VPN Logins / Tunnel Events ===== -->
+  <rule id="102606" level="5">
+    <if_group>meraki</if_group>
+    <field name="merevent">vpn_connect</field>
+    <description>VPN connection established from $(srcip)</description>
+    <group>meraki,vpn,login</group>
+  </rule>
+
+  <rule id="102607" level="10">
+    <if_group>meraki</if_group>
+    <field name="merevent">vpn_login_fail</field>
+    <description>VPN login failed from $(srcip)</description>
+    <group>meraki,vpn,login_fail</group>
+  </rule>
+
+  <!-- ===== Content Filtering ===== -->
+  <rule id="102608" level="6">
+    <if_group>meraki</if_group>
+    <field name="merevent">content_filtering_block</field>
+    <description>Blocked content access attempt - Category: $(mercategory), URL: $(url)</description>
+    <group>meraki,filtering,policy_enforcement</group>
+  </rule>
+
+  <!-- Access to known risky categories -->
+  <rule id="102609" level="7">
+    <if_group>meraki</if_group>
+    <field name="merevent">urls</field>
+    <match>gambling|proxy|adult|darkweb</match>
+    <description>Accessed risky site - $(url)</description>
+    <group>meraki,urls,suspicious</group>
+  </rule>
+
+  <!-- ===== Device/Client Events ===== -->
+  <rule id="102610" level="4">
+    <if_group>meraki</if_group>
+    <field name="merevent">events</field>
+    <match>client_connect|client_disconnect</match>
+    <description>Client $(mersubevent): $(srcip)</description>
+    <group>meraki,device,client_tracking</group>
+  </rule>
+
+  <!-- ===== Flow Events (non-critical but useful for investigation) ===== -->
+  <rule id="102611" level="3">
+    <if_group>meraki</if_group>
+    <field name="merevent">ip_flow_start</field>
+    <description>New network flow started - $(srcip):$(srcport) to $(dstip):$(dstport)</description>
+    <group>meraki,network_flow</group>
+  </rule>
+
+  <rule id="102612" level="3">
+    <if_group>meraki</if_group>
+    <field name="merevent">ip_flow_end</field>
+    <description>Network flow ended - $(srcip):$(srcport) to $(dstip):$(dstport)</description>
+    <group>meraki,network_flow</group>
+  </rule>
+
+</group>

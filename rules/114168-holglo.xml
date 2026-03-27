@@ -1,0 +1,37 @@
+<!--
+    Client Specific Rules for holglo
+    File: 950000-holglo.xml
+    These rules should only match when agent.labels.group is holgo.
+-->
+
+<group name="holglo,">
+
+  <rule id="114168" level="1">
+    <if_group>sysmon_event1</if_group>
+    <field name="agent.labels.customer" type="pcre2">holgo</field>
+    <description>Hollis - Suppress Sysmon Event 1 alerts for holgo group</description>
+    <options>no_log</options>
+  </rule>
+
+  <rule id="114169" level="1">
+    <if_group>sysmon_event3</if_group>
+    <field name="agent.labels.customer" type="pcre2">holgo</field>
+    <description>Hollis - Suppress Sysmon Event 3 alerts for holgo group</description>
+    <options>no_log</options>
+  </rule>
+
+  <rule id="114170" level="1">
+    <if_sid>91822</if_sid>
+    <field name="agent.labels.customer" type="pcre2">holgo</field>
+    <description>Hollis - Suppress Ninja RMM alerts for holgo group</description>
+    <options>no_log</options>
+  </rule>
+
+  <rule id="114171" level="1">
+    <if_sid>91823</if_sid>
+    <field name="agent.labels.customer" type="pcre2">holgo</field>
+    <description>Hollis - Suppress Ninja RMM alerts for holgo group</description>
+    <options>no_log</options>
+  </rule>
+
+</group>

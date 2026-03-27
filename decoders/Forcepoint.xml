@@ -1,0 +1,27 @@
+<!-- This is preliminary data based off of searches. Refinements will need to be made to this decoder once logs are being sent and we can test it. -->
+
+<!-- Base decoder -->
+<decoder name="forcepoint">
+  <program_name>Forcepoint</program_name>
+</decoder>
+
+<!-- Traffic log -->
+<decoder name="forcepoint_traffic">
+  <parent>forcepoint</parent>
+  <regex>[TRAFFIC] User=([^ ]+) Action=([^ ]+) URL=([^ ]+) Category=([^ ]+)</regex>
+  <order>user,action,url,category</order>
+</decoder>
+
+<!-- System log -->
+<decoder name="forcepoint_system">
+  <parent>forcepoint</parent>
+  <regex>[SYSTEM] Event=([^ ]+) Component=([^ ]+) Status=([^ ]+) Details="([^"]+)"</regex>
+  <order>event,component,status,details</order>
+</decoder>
+
+<!-- Audit log -->
+<decoder name="forcepoint_audit">
+  <parent>forcepoint</parent>
+  <regex>[AUDIT] User=([^ ]+) Action=([^ ]+) Target=([^ ]+) Result=([^ ]+)</regex>
+  <order>user,action,target,result</order>
+</decoder>

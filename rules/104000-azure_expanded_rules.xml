@@ -1,0 +1,41 @@
+<!--
+  -  Microsoft Azure ruleset
+  -  Created by Joseph
+  -  Created for UK Cyber-Defence ltd.
+-->
+<group name="azure_log_analytics,">
+
+  <!-- 5 MIN: Same user (UPN), CITY changes -->
+  <rule id="104001" level="14" frequency="2" timeframe="300">
+    <if_matched_sid>87801</if_matched_sid>
+
+    <same_field>data_UserPrincipalName</same_field>
+    <different_field>data_LocationDetails_city</different_field>
+
+    <description>Azure Log Analytics: Impossible travel - same user (UPN), city changed within 5 minutes.</description>
+    <group>azure,authentication,impossible_travel</group>
+  </rule>
+
+  <!-- 5 MIN: Same user (UPN), COUNTRY/REGION changes -->
+  <rule id="104002" level="16" frequency="2" timeframe="300">
+    <if_matched_sid>87801</if_matched_sid>
+
+    <same_field>data_UserPrincipalName</same_field>
+    <different_field>data_LocationDetails_countryOrRegion</different_field>
+
+    <description>Azure Log Analytics: Impossible travel - same user (UPN), country/region changed within 5 minutes.</description>
+    <group>azure,authentication,impossible_travel</group>
+  </rule>
+
+  <!-- 20 MIN: Same user (UPN), LOCATION changes -->
+  <rule id="104003" level="10" frequency="2" timeframe="1200">
+    <if_matched_sid>87801</if_matched_sid>
+
+    <same_field>data_UserPrincipalName</same_field>
+    <different_field>data_Location</different_field>
+
+    <description>Azure Log Analytics: Suspicious travel - same user (UPN), location changed within 20 minutes.</description>
+    <group>azure,authentication,suspicious_travel</group>
+  </rule>
+
+</group>

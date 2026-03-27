@@ -1,0 +1,41 @@
+<group name="forcepoint,">
+
+  <!-- Base rule: tag Forcepoint logs -->
+  <rule id="107250" level="0">
+    <decoded_as>forcepoint</decoded_as>
+    <description>Forcepoint log detected</description>
+  </rule>
+
+  <!-- Traffic: BLOCK action -->
+  <rule id="107251" level="13">
+    <if_sid>107250</if_sid>
+    <match>Action=BLOCK</match>
+    <description>Forcepoint Traffic: Blocked connection attempt</description>
+    <group>firewall,blocked,</group>
+  </rule>
+
+  <!-- Audit: Failed action -->
+  <rule id="107252" level="14">
+    <if_sid>107250</if_sid>
+    <match>Result=FAILED</match>
+    <description>Forcepoint Audit: Failed action</description>
+    <group>authentication_failed,</group>
+  </rule>
+
+  <!-- System: Error status -->
+  <rule id="107253" level="15">
+    <if_sid>107250</if_sid>
+    <match>Status=ERROR</match>
+    <description>Forcepoint System: Error reported</description>
+    <group>system_error,</group>
+  </rule>
+
+  <!-- Audit: Password change -->
+  <rule id="107254" level="13">
+    <if_sid>107250</if_sid>
+    <match>Action=ChangePassword</match>
+    <description>Forcepoint Audit: Password change detected</description>
+    <group>authentication_success,</group>
+  </rule>
+
+</group>

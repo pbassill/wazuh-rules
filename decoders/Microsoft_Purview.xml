@@ -1,0 +1,24 @@
+<!--
+  Microsoft Purview Decoder
+
+  Parses Microsoft Purview audit events forwarded via syslog.
+  When logs are ingested through the Wazuh Office 365 module they
+  arrive as JSON and the built-in json decoder handles them
+  automatically, so this decoder is only needed for syslog-
+  forwarded Purview events.
+
+  Expected syslog format:
+    <timestamp> <host> MicrosoftPurview: {"CreationTime":"...","Workload":"...","Operation":"...",...}
+-->
+
+<!-- Base decoder: match the program name -->
+<decoder name="microsoft-purview">
+  <program_name>MicrosoftPurview</program_name>
+</decoder>
+
+<!-- Extract the JSON payload that follows the program name -->
+<decoder name="microsoft-purview">
+  <parent>microsoft-purview</parent>
+  <regex type="pcre2">(\{.+\})</regex>
+  <order>purview_payload</order>
+</decoder>

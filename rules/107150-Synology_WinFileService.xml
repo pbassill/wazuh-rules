@@ -1,0 +1,132 @@
+<!--
+  Synology NAS - WinFileService, Connection, and Backup rules
+  Rule IDs: 107150-107163
+  Used as base rules for DLP correlation (150200-150244)
+
+  Decoders: synology-winfileservice, synology-connection, synology-backup
+-->
+<group name="synology,syslog,">
+
+  <!-- ===== WinFileService: File Operations ===== -->
+
+  <!-- Base rule for Synology WinFileService file operations -->
+  <rule id="107150" level="3">
+    <decoded_as>synology-winfileservice</decoded_as>
+    <description>Synology NAS: WinFileService file operation — $(action) on $(data).</description>
+    <group>synology_file_operation,</group>
+  </rule>
+
+  <!-- File deletion -->
+  <rule id="107151" level="5">
+    <if_sid>107150</if_sid>
+    <field name="action" type="pcre2">(?i)^Delete$</field>
+    <description>Synology NAS: File deleted — $(data).</description>
+    <mitre>
+      <id>T1070.004</id>
+    </mitre>
+    <group>synology_file_operation,</group>
+  </rule>
+
+  <!-- File renaming -->
+  <rule id="107152" level="5">
+    <if_sid>107150</if_sid>
+    <field name="action" type="pcre2">(?i)^Rename$</field>
+    <description>Synology NAS: File renamed — $(data).</description>
+    <group>synology_file_operation,</group>
+  </rule>
+
+  <!-- File move -->
+  <rule id="107153" level="3">
+    <if_sid>107150</if_sid>
+    <field name="action" type="pcre2">(?i)^Move$</field>
+    <description>Synology NAS: File moved — $(data).</description>
+    <group>synology_file_operation,</group>
+  </rule>
+
+  <!-- File creation -->
+  <rule id="107154" level="3">
+    <if_sid>107150</if_sid>
+    <field name="action" type="pcre2">(?i)^Create$</field>
+    <description>Synology NAS: File created — $(data).</description>
+    <group>synology_file_operation,</group>
+  </rule>
+
+  <!-- File read/open -->
+  <rule id="107155" level="1">
+    <if_sid>107150</if_sid>
+    <field name="action" type="pcre2">(?i)^(Read|Open)$</field>
+    <description>Synology NAS: File accessed — $(data).</description>
+    <group>synology_file_operation,</group>
+  </rule>
+
+  <!-- ===== Connection: Shared Folder Access ===== -->
+
+  <!-- Base rule for Synology Connection events (shared folder, auth) -->
+  <rule id="107156" level="3">
+    <decoded_as>synology-connection</decoded_as>
+    <match>accessed shared folder</match>
+    <description>Synology NAS: Shared folder accessed by $(srcuser) from $(srcip).</description>
+    <group>synology_connection,</group>
+  </rule>
+
+  <!-- Connection authentication failure -->
+  <rule id="107157" level="10">
+    <decoded_as>synology-connection</decoded_as>
+    <match>failed to sign in</match>
+    <description>Synology NAS: Authentication failure for $(srcuser) from $(srcip).</description>
+    <group>synology_connection,synology_auth_failure,authentication_failed,</group>
+  </rule>
+
+  <!-- Connection authentication success -->
+  <rule id="107158" level="3">
+    <decoded_as>synology-connection</decoded_as>
+    <match>successfully</match>
+    <description>Synology NAS: Successful login for $(srcuser) from $(srcip).</description>
+    <group>synology_connection,authentication_success,</group>
+  </rule>
+
+  <!-- ===== Backup: Task Monitoring ===== -->
+
+  <!-- Base rule for Synology Backup events -->
+  <rule id="107159" level="3">
+    <decoded_as>synology-backup</decoded_as>
+    <description>Synology NAS: Backup event detected.</description>
+    <group>synology_backup,</group>
+  </rule>
+
+  <!-- Backup task completed successfully -->
+  <rule id="107160" level="3">
+    <if_sid>107159</if_sid>
+    <match>finished successfully</match>
+    <description>Synology NAS: Backup task completed successfully.</description>
+    <group>synology_backup,</group>
+  </rule>
+
+  <!-- Backup task failed -->
+  <rule id="107161" level="10">
+    <if_sid>107159</if_sid>
+    <match>Failed to run</match>
+    <description>Synology NAS: Backup task failed.</description>
+    <group>synology_backup,</group>
+  </rule>
+
+  <!-- Backup task cancelled -->
+  <rule id="107162" level="5">
+    <if_sid>107159</if_sid>
+    <match>was cancelled</match>
+    <description>Synology NAS: Backup task was cancelled.</description>
+    <group>synology_backup,</group>
+  </rule>
+
+  <!-- Backup task removed -->
+  <rule id="107163" level="10">
+    <if_sid>107159</if_sid>
+    <match>was removed</match>
+    <description>Synology NAS: Backup task was removed.</description>
+    <mitre>
+      <id>T1070</id>
+    </mitre>
+    <group>synology_backup,</group>
+  </rule>
+
+</group>

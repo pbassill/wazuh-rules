@@ -1,0 +1,2390 @@
+<!--
+  Data Loss Prevention (DLP) Rules
+  Rule IDs: 150000–150244
+  Author:   Peter Bassill /// UK Cyber Defence (peter@cyber-defence.io)
+  Detects common data exfiltration, unauthorized transfers,
+  and sensitive-data exposure indicators.
+
+  Windows Sysmon Events Leveraged:
+    Event  1 (61603)  — Process Creation: exfil tools, archive commands, credential dumpers
+    Event  3 (61605)  — Network Connection: FTP, suspicious ports, cloud/messaging apps
+    Event 10 (61612)  — Process Access: LSASS credential theft
+    Event 11 (61613)  — File Created: staging archives, sensitive file types in temp dirs
+    Event 12 (61614)  — Registry Create/Delete: audit policy tampering
+    Event 13 (61615)  — Registry Value Set: USB policy, Defender, removable storage
+    Event 15 (61617)  — FileCreateStreamHash: Alternate Data Streams / covert hiding
+    Event 22 (61650)  — DNS Query: file-sharing lookups, DNS tunneling, dark web
+    Event 23 (109206) — File Delete: post-exfiltration cleanup, secure deletion
+
+  Linux / macOS Sysmon Events Leveraged:
+    Event  1 (200151) — Process Creation: exfil tools, archive commands, credential access
+    Event  3 (200152) — Network Connection: suspicious ports, scripting engine connections
+    Event 11 (200155) — File Created: staging archives, sensitive file types in temp dirs
+    Event 23 (200157) — File Delete: post-exfiltration cleanup, secure deletion
+
+  Additional Sources:
+    Office 365 (108000) — DLP policy violations, sensitivity labels, eDiscovery,
+                          sharing, mail flow, mailbox delegation, OAuth consent
+    Google Workspace (108500) — Drive sharing/downloads, Gmail forwarding/delegation,
+                                DLP rule triggers, Vault exports, OAuth tokens,
+                                admin role changes, group/2SV policy changes
+    AWS CloudWatch (100030)
+
+  Synology NAS (107150–107163):
+    WinFileService — File operations: bulk deletion, renaming, sensitive directory
+                     access, large transfers, archive staging, credential files
+    Connection     — Shared folder access via uncommon protocols, auth correlation
+    Backup         — External backup destinations, backup task removal
+-->
+
+<group name="dlp,data_loss_prevention,">
+
+  <!-- ===== Base DLP Rule ===== -->
+
+  <rule id="117631" level="3">
+    <decoded_as>json</decoded_as>
+    <match>dlp|data_loss|data_leak|sensitive_data</match>
+    <description>DLP: Generic data loss prevention event detected.</description>
+    <group>dlp_generic,</group>
+  </rule>
+
+  <!-- ===== Large / Bulk File Transfers ===== -->
+
+  <rule id="117632" level="10">
+    <if_sid>61603</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(robocopy|xcopy|copy\s+\/[yze])\s+.*\\\\(Documents|Desktop|Downloads|Finance|HR|Confidential)</field>
+    <description>DLP: Bulk file copy from sensitive directory detected — possible data exfiltration.</description>
+    <mitre>
+      <id>T1005</id>
+      <id>T1039</id>
+    </mitre>
+    <group>dlp_bulk_copy,data_exfiltration,</group>
+  </rule>
+
+  <rule id="117633" level="12">
+    <if_sid>61603</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(7z|zip|rar|tar)\s+.*\s+(\\\\Users\\\\|\\\\Shares\\\\|\\\\Finance|\\\\HR|\\\\Confidential)</field>
+    <description>DLP: Compression of files from sensitive directory — possible data staging for exfiltration.</description>
+    <mitre>
+      <id>T1560.001</id>
+    </mitre>
+    <group>dlp_archive,data_staging,</group>
+  </rule>
+
+  <!-- ===== Cloud Storage Exfiltration ===== -->
+
+  <rule id="117634" level="12">
+    <if_sid>61603</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)rclone\s+(copy|sync|move|mount)</field>
+    <description>DLP: Rclone cloud transfer detected — possible data exfiltration to cloud storage.</description>
+    <mitre>
+      <id>T1567.002</id>
+    </mitre>
+    <group>dlp_cloud_exfil,data_exfiltration,</group>
+  </rule>
+
+  <rule id="117635" level="10">
+    <if_sid>61603</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(megacmd|megacopy|megatools|mega-put|mega-sync)</field>
+    <description>DLP: MEGA cloud tool usage detected — possible data exfiltration.</description>
+    <mitre>
+      <id>T1567.002</id>
+    </mitre>
+    <group>dlp_cloud_exfil,data_exfiltration,</group>
+  </rule>
+
+  <rule id="117636" level="10">
+    <if_sid>61603</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(gsutil\s+cp|aws\s+s3\s+cp|az\s+storage\s+blob\s+upload|azcopy)</field>
+    <description>DLP: Cloud CLI upload detected — possible data exfiltration to cloud provider.</description>
+    <mitre>
+      <id>T1567.002</id>
+    </mitre>
+    <group>dlp_cloud_exfil,data_exfiltration,</group>
+  </rule>
+
+  <!-- ===== Email-based Exfiltration ===== -->
+
+  <rule id="117637" level="10">
+    <if_sid>61603</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(Send-MailMessage|smtp|System\.Net\.Mail|blat\.exe)\s+.*(-Attachments|-attach|\/attach)</field>
+    <description>DLP: Command-line email with attachment — possible data exfiltration via email.</description>
+    <mitre>
+      <id>T1048.003</id>
+    </mitre>
+    <group>dlp_email_exfil,data_exfiltration,</group>
+  </rule>
+
+  <!-- ===== USB / Removable Media ===== -->
+
+  <rule id="117638" level="8">
+    <if_sid>61603</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(copy|move|xcopy|robocopy)\s+.*\s+[d-zD-Z]:\\\\</field>
+    <description>DLP: File copy to removable or non-system drive — potential data theft via USB.</description>
+    <mitre>
+      <id>T1052.001</id>
+    </mitre>
+    <group>dlp_usb_exfil,removable_media,</group>
+  </rule>
+
+  <rule id="117639" level="10">
+    <if_sid>61615</if_sid>
+    <field name="win.eventdata.targetObject" type="pcre2">(?i)HKLM\\\\SYSTEM\\\\CurrentControlSet\\\\Enum\\\\USBSTOR</field>
+    <description>DLP: New USB storage device registered — monitor for data exfiltration.</description>
+    <mitre>
+      <id>T1052.001</id>
+    </mitre>
+    <group>dlp_usb_device,removable_media,</group>
+  </rule>
+
+  <!-- ===== Network-based Exfiltration ===== -->
+
+  <rule id="117640" level="12">
+    <if_sid>61603</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(curl|wget|Invoke-WebRequest|Invoke-RestMethod)\s+.*(POST|PUT|upload).*(-d\s+@|-InFile|-Body)</field>
+    <description>DLP: HTTP upload via command-line tool — possible data exfiltration over web.</description>
+    <mitre>
+      <id>T1048.003</id>
+    </mitre>
+    <group>dlp_http_exfil,data_exfiltration,</group>
+  </rule>
+
+  <rule id="117641" level="12">
+    <if_sid>61603</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(sftp|scp|pscp|winscp|ftp)\s+.*(-put|put\s|upload|send)</field>
+    <description>DLP: File transfer via FTP/SCP/SFTP — possible data exfiltration.</description>
+    <mitre>
+      <id>T1048.003</id>
+    </mitre>
+    <group>dlp_ftp_exfil,data_exfiltration,</group>
+  </rule>
+
+  <rule id="117642" level="13">
+    <if_sid>61603</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(ncat|nc|nmap|socat)\s+.*(&lt;|--|stdin|\|)</field>
+    <description>DLP: Data piped through netcat/socat — possible covert exfiltration channel.</description>
+    <mitre>
+      <id>T1048.001</id>
+    </mitre>
+    <group>dlp_covert_channel,data_exfiltration,</group>
+  </rule>
+
+  <!-- ===== DNS-based Exfiltration ===== -->
+
+  <rule id="117643" level="13">
+    <if_sid>61603</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(iodine|dnscat2|dns2tcp|dnsexfiltrator)</field>
+    <description>DLP: DNS tunneling tool detected — possible data exfiltration over DNS.</description>
+    <mitre>
+      <id>T1048.001</id>
+      <id>T1071.004</id>
+    </mitre>
+    <group>dlp_dns_exfil,data_exfiltration,</group>
+  </rule>
+
+  <!-- ===== Sensitive Data Pattern Exposure ===== -->
+
+  <rule id="117644" level="10">
+    <if_sid>61603</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(findstr|grep|Select-String)\s+.*(password|secret|api_key|token|credential|ssn|credit.?card)</field>
+    <description>DLP: Search for sensitive data patterns — possible credential or PII harvesting.</description>
+    <mitre>
+      <id>T1552.001</id>
+    </mitre>
+    <group>dlp_sensitive_search,credential_access,</group>
+  </rule>
+
+  <rule id="117645" level="12">
+    <if_sid>61603</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(mimikatz|lazagne|secretsdump|procdump.*lsass|comsvcs.*MiniDump)</field>
+    <description>DLP: Credential dumping tool detected — sensitive authentication data at risk.</description>
+    <mitre>
+      <id>T1003.001</id>
+    </mitre>
+    <group>dlp_credential_dump,credential_access,</group>
+  </rule>
+
+  <!-- ===== Database Exfiltration ===== -->
+
+  <rule id="117646" level="12">
+    <if_sid>61603</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(mysqldump|pg_dump|mongodump|sqlcmd.*-Q|bcp\s+.*out)</field>
+    <description>DLP: Database export utility executed — possible bulk data exfiltration.</description>
+    <mitre>
+      <id>T1005</id>
+    </mitre>
+    <group>dlp_database_exfil,data_exfiltration,</group>
+  </rule>
+
+  <!-- ===== Steganography / Covert Data Hiding ===== -->
+
+  <rule id="117647" level="13">
+    <if_sid>61603</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(steghide|openstego|snow\.exe|invisible.?secrets)</field>
+    <description>DLP: Steganography tool detected — possible covert data exfiltration via hidden data.</description>
+    <mitre>
+      <id>T1027.003</id>
+    </mitre>
+    <group>dlp_steganography,data_exfiltration,</group>
+  </rule>
+
+  <!-- ===== Print / Screenshot Data Theft ===== -->
+
+  <rule id="117648" level="8">
+    <if_sid>61603</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(snippingtool|screenshot|nircmd.*savescreenshot|psr\.exe)</field>
+    <description>DLP: Screen capture tool executed — monitor for data exfiltration via screenshots.</description>
+    <mitre>
+      <id>T1113</id>
+    </mitre>
+    <group>dlp_screen_capture,data_collection,</group>
+  </rule>
+
+  <!-- ===== Clipboard Data Theft ===== -->
+
+  <rule id="117649" level="10">
+    <if_sid>61603</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(Get-Clipboard|powershell.*clip|clip\.exe\s*&lt;|xclip|xsel)</field>
+    <description>DLP: Clipboard data access detected — possible sensitive data harvesting.</description>
+    <mitre>
+      <id>T1115</id>
+    </mitre>
+    <group>dlp_clipboard,data_collection,</group>
+  </rule>
+
+  <!-- ===== Encrypted / Encoded Exfiltration ===== -->
+
+  <rule id="117650" level="12">
+    <if_sid>61603</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(certutil\s+-encode|base64\s+-w|openssl\s+enc|gpg\s+(-e|--encrypt))\s+</field>
+    <description>DLP: Data encoding or encryption before transfer — possible obfuscated exfiltration.</description>
+    <mitre>
+      <id>T1132.001</id>
+      <id>T1560.001</id>
+    </mitre>
+    <group>dlp_encoded_exfil,data_exfiltration,</group>
+  </rule>
+
+  <!-- ===== Linux-specific DLP Rules ===== -->
+
+  <rule id="117651" level="10">
+    <if_sid>114136</if_sid>
+    <field name="eventdata.targetFilename" type="pcre2">(?i)\.(sql|csv|xlsx|docx|pdf|pst|ost|mdb|accdb|kdbx|key|pem|pfx|p12)$</field>
+    <description>DLP: Sensitive file type created — potential data staging for exfiltration.</description>
+    <mitre>
+      <id>T1074.001</id>
+    </mitre>
+    <group>dlp_sensitive_file,data_staging,</group>
+  </rule>
+
+  <rule id="117652" level="10">
+    <if_sid>114133</if_sid>
+    <field name="eventdata.destinationPort" type="pcre2">^(20|21|22|69|989|990|3389|5900)$</field>
+    <field name="eventdata.user" type="pcre2">^(?!root$).+</field>
+    <description>DLP: Non-root connection on file-transfer port — possible unauthorized data transfer.</description>
+    <mitre>
+      <id>T1048</id>
+    </mitre>
+    <group>dlp_suspicious_transfer,data_exfiltration,</group>
+  </rule>
+
+  <!-- ===== Office 365 / Cloud DLP Rules ===== -->
+
+  <rule id="117653" level="10">
+    <if_sid>108000</if_sid>
+    <field name="office_365.Operation" type="pcre2">(?i)^(FileSyncDownloadedFull|FileDownloaded|FileAccessed)$</field>
+    <field name="office_365.SourceFileName" type="pcre2">(?i)\.(pst|ost|sql|mdb|bak|kdbx|pfx|key)$</field>
+    <description>DLP: Sensitive file downloaded from Office 365 — $(office_365.SourceFileName).</description>
+    <mitre>
+      <id>T1530</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_cloud_download,data_exfiltration,</group>
+  </rule>
+
+  <rule id="117654" level="12">
+    <if_sid>108000</if_sid>
+    <field name="office_365.Operation" type="pcre2">(?i)^(SharingSet|AnonymousLinkCreated|CompanyLinkCreated|SharingInvitationCreated)$</field>
+    <description>DLP: External sharing or anonymous link created in Office 365 — possible data exposure.</description>
+    <mitre>
+      <id>T1567</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_cloud_sharing,data_exposure,</group>
+  </rule>
+
+  <rule id="117655" level="13">
+    <if_sid>108000</if_sid>
+    <field name="office_365.Operation" type="pcre2">(?i)^(New-TransportRule|Set-TransportRule|Remove-TransportRule)$</field>
+    <description>DLP: Exchange mail-flow (transport) rule modified — possible DLP policy bypass.</description>
+    <mitre>
+      <id>T1114.003</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_policy_tampering,defense_evasion,</group>
+  </rule>
+
+  <rule id="117656" level="13">
+    <if_sid>108000</if_sid>
+    <field name="office_365.Operation" type="pcre2">(?i)^(New-InboxRule|Set-InboxRule|UpdateInboxRules)$</field>
+    <field name="office_365.Parameters" type="pcre2">(?i)(ForwardTo|RedirectTo|ForwardAsAttachmentTo)</field>
+    <description>DLP: Email forwarding rule created in Office 365 — possible email exfiltration.</description>
+    <mitre>
+      <id>T1114.003</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_email_forward,data_exfiltration,</group>
+  </rule>
+
+  <!-- ===== Enhanced Office 365 DLP Rules ===== -->
+
+  <rule id="117657" level="12">
+    <if_sid>108000</if_sid>
+    <field name="office_365.Operation" type="pcre2">(?i)^DlpRuleMatch$</field>
+    <field name="office_365.Workload" type="pcre2">(?i)^Exchange$</field>
+    <description>DLP: Office 365 DLP policy violation on Exchange email — sensitive data detected in message.</description>
+    <mitre>
+      <id>T1048.003</id>
+      <id>T1567</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_o365_policy_match,data_exfiltration,</group>
+  </rule>
+
+  <rule id="117658" level="13">
+    <if_sid>108000</if_sid>
+    <field name="office_365.Operation" type="pcre2">(?i)^(DLPRuleUndo|DlpOverride)$</field>
+    <description>DLP: Office 365 DLP policy action overridden by user — potential policy bypass.</description>
+    <mitre>
+      <id>T1562.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_o365_policy_override,defense_evasion,</group>
+  </rule>
+
+  <rule id="117659" level="13">
+    <if_sid>108000</if_sid>
+    <field name="office_365.Operation" type="pcre2">(?i)^(New-ComplianceSearch|Start-ComplianceSearch|New-ComplianceSearchAction)$</field>
+    <description>DLP: Office 365 eDiscovery compliance search executed — potential bulk data access or exfiltration.</description>
+    <mitre>
+      <id>T1114.002</id>
+      <id>T1213</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_o365_ediscovery,data_collection,</group>
+  </rule>
+
+  <rule id="117660" level="12">
+    <if_sid>108000</if_sid>
+    <field name="office_365.Operation" type="pcre2">(?i)^(SensitivityLabelRemoved|SensitivityLabelUpdated|FileSensitivityLabelRemoved|FileSensitivityLabelChanged)$</field>
+    <description>DLP: Office 365 sensitivity label removed or changed — possible DLP bypass to exfiltrate classified data.</description>
+    <mitre>
+      <id>T1562.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_o365_label_change,defense_evasion,</group>
+  </rule>
+
+  <rule id="117661" level="12">
+    <if_sid>108000</if_sid>
+    <field name="office_365.Operation" type="pcre2">(?i)^(Add-MailboxPermission|AddFolderPermissions|Set-Mailbox)$</field>
+    <field name="office_365.Parameters" type="pcre2">(?i)(FullAccess|SendAs|SendOnBehalf|ForwardingSmtpAddress)</field>
+    <description>DLP: Office 365 mailbox permission or forwarding changed — possible email data exfiltration setup.</description>
+    <mitre>
+      <id>T1098</id>
+      <id>T1114.002</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_o365_mailbox_delegation,data_exfiltration,</group>
+  </rule>
+
+  <rule id="117662" level="12">
+    <if_sid>108000</if_sid>
+    <field name="office_365.Operation" type="pcre2">(?i)^(Set-SPOTenant|Set-SPOSite|SharingPolicyChanged)$</field>
+    <description>DLP: Office 365 SharePoint/OneDrive sharing policy changed — possible data exposure configuration.</description>
+    <mitre>
+      <id>T1537</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_o365_sharing_policy,data_exposure,</group>
+  </rule>
+
+  <rule id="117665" level="10">
+    <if_sid>108000</if_sid>
+    <field name="office_365.Operation" type="pcre2">(?i)^(FileDeleted|FileDeletedFirstStageRecycleBin|FileVersionsAllDeleted)$</field>
+    <field name="office_365.SourceFileName" type="pcre2">(?i)\.(pst|ost|sql|mdb|bak|kdbx|pfx|key|pem|p12|xlsx|docx|pdf|csv)$</field>
+    <description>DLP: Sensitive file deleted from Office 365 — possible post-exfiltration evidence cleanup.</description>
+    <mitre>
+      <id>T1070.004</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_o365_file_delete,anti_forensics,</group>
+  </rule>
+
+  <rule id="117666" level="13">
+    <if_sid>108000</if_sid>
+    <field name="office_365.Operation" type="pcre2">(?i)^(Consent to application\.|Add app role assignment to service principal\.|Add OAuth2PermissionGrant\.)$</field>
+    <description>DLP: Office 365 OAuth application consent granted — potential unauthorized data access via app permissions.</description>
+    <mitre>
+      <id>T1550.001</id>
+      <id>T1098.003</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_o365_oauth_consent,data_exposure,</group>
+  </rule>
+
+  <rule id="117667" level="10">
+    <if_sid>108000</if_sid>
+    <field name="office_365.Operation" type="pcre2">(?i)^(AddedToTeam|MemberAdded)$</field>
+    <field name="office_365.Members" type="pcre2">(?i)(#EXT#|guest)</field>
+    <description>DLP: External/guest user added to Teams — potential data exposure to unauthorized party.</description>
+    <mitre>
+      <id>T1199</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_o365_teams_external,data_exposure,</group>
+  </rule>
+
+  <rule id="117668" level="13">
+    <if_sid>108000</if_sid>
+    <field name="office_365.Operation" type="pcre2">(?i)^(Remove-DlpPolicy|Remove-DlpComplianceRule|Set-DlpCompliancePolicy)$</field>
+    <description>DLP: Office 365 DLP policy disabled or removed — critical DLP control bypass.</description>
+    <mitre>
+      <id>T1562.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_o365_policy_disabled,defense_evasion,</group>
+  </rule>
+
+  <rule id="117669" level="12">
+    <if_sid>108000</if_sid>
+    <field name="office_365.Operation" type="pcre2">(?i)^(CreateFlow|EditFlow)$</field>
+    <field name="office_365.ObjectId" type="pcre2">(?i)(HTTP|SMTP|Outlook|SharePoint|OneDrive|Gmail|Dropbox|Slack)</field>
+    <description>DLP: Power Automate flow created with external connector — potential automated data exfiltration.</description>
+    <mitre>
+      <id>T1567</id>
+      <id>T1137</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_o365_flow_exfil,data_exfiltration,</group>
+  </rule>
+
+  <rule id="117670" level="14" frequency="15" timeframe="300">
+    <if_matched_sid>117665</if_matched_sid>
+    <description>DLP: Mass sensitive file deletion from Office 365 — active evidence destruction in progress.</description>
+    <mitre>
+      <id>T1070.004</id>
+      <id>T1485</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_o365_mass_delete,anti_forensics,</group>
+  </rule>
+
+  <rule id="117671" level="14" frequency="10" timeframe="300">
+    <if_matched_sid>117657</if_matched_sid>
+    <description>DLP: Repeated Office 365 DLP policy violations — sustained sensitive data exposure.</description>
+    <mitre>
+      <id>T1048.003</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_o365_repeated_violation,data_exfiltration,</group>
+  </rule>
+
+  <!-- ===== AWS DLP Rules ===== -->
+
+  <rule id="117663" level="12">
+    <if_sid>100030</if_sid>
+    <match>s3:GetObject|s3:ListBucket</match>
+    <regex>Confidential|Restricted|sensitive|financial</regex>
+    <description>DLP: Access to sensitive AWS S3 bucket — monitor for data exfiltration.</description>
+    <mitre>
+      <id>T1530</id>
+    </mitre>
+    <group>dlp_aws_s3,data_exfiltration,</group>
+  </rule>
+
+  <rule id="117664" level="13">
+    <if_sid>100030</if_sid>
+    <match>s3:PutBucketPolicy|s3:PutBucketAcl</match>
+    <description>DLP: AWS S3 bucket policy or ACL changed — possible data exposure risk.</description>
+    <mitre>
+      <id>T1530</id>
+    </mitre>
+    <group>dlp_aws_policy,data_exposure,</group>
+  </rule>
+
+  <!-- ===== Frequency-based DLP Alerts ===== -->
+
+  <rule id="117672" level="14" frequency="10" timeframe="120">
+    <if_matched_sid>117632</if_matched_sid>
+    <description>DLP: High frequency bulk file copy operations — active data exfiltration in progress.</description>
+    <mitre>
+      <id>T1005</id>
+      <id>T1039</id>
+    </mitre>
+    <group>dlp_active_exfil,data_exfiltration,</group>
+  </rule>
+
+  <rule id="117673" level="14" frequency="5" timeframe="300">
+    <if_matched_sid>117634</if_matched_sid>
+    <description>DLP: Repeated cloud transfer tool usage — sustained data exfiltration campaign.</description>
+    <mitre>
+      <id>T1567.002</id>
+    </mitre>
+    <group>dlp_sustained_exfil,data_exfiltration,</group>
+  </rule>
+
+  <rule id="117674" level="14" frequency="20" timeframe="300">
+    <if_matched_sid>117653</if_matched_sid>
+    <description>DLP: Mass download of sensitive files from Office 365 — possible data theft.</description>
+    <mitre>
+      <id>T1530</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_mass_download,data_exfiltration,</group>
+  </rule>
+
+  <!-- ================================================================
+       Sysmon-Enhanced DLP Rules
+       Leverages Sysmon Events 3, 10, 11, 12, 13, 15, 22, 23
+       for deeper endpoint visibility into data loss scenarios.
+       ================================================================ -->
+
+  <!-- ===== Sysmon Event 3: Network Connection — Exfiltration Channels ===== -->
+
+  <rule id="117675" level="10">
+    <if_sid>61605</if_sid>
+    <field name="win.eventdata.destinationPort" type="pcre2">^(20|21|69|989|990)$</field>
+    <field name="win.eventdata.initiated" type="pcre2">^true$</field>
+    <description>DLP: Sysmon outbound FTP/TFTP connection by $(win.eventdata.image) — possible file exfiltration.</description>
+    <mitre>
+      <id>T1048.003</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_ftp_connection,data_exfiltration,sysmon_event3,</group>
+  </rule>
+
+  <rule id="117676" level="12">
+    <if_sid>61605</if_sid>
+    <field name="win.eventdata.destinationPort" type="pcre2">^(4444|5555|8888|1337|31337|9001|9030)$</field>
+    <field name="win.eventdata.initiated" type="pcre2">^true$</field>
+    <description>DLP: Sysmon outbound connection on suspicious port $(win.eventdata.destinationPort) by $(win.eventdata.image) — possible covert exfiltration.</description>
+    <mitre>
+      <id>T1048.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_suspicious_port,data_exfiltration,sysmon_event3,</group>
+  </rule>
+
+  <rule id="117677" level="10">
+    <if_sid>61605</if_sid>
+    <field name="win.eventdata.image" type="pcre2">(?i)(rclone|megasync|megacmd|gdrive|onedrive|dropbox|telegram|discord)\.exe$</field>
+    <field name="win.eventdata.initiated" type="pcre2">^true$</field>
+    <description>DLP: Sysmon cloud/messaging app network connection by $(win.eventdata.image) — monitor for data exfiltration.</description>
+    <mitre>
+      <id>T1567.002</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_cloud_app_network,data_exfiltration,sysmon_event3,</group>
+  </rule>
+
+  <rule id="117678" level="12">
+    <if_sid>61605</if_sid>
+    <field name="win.eventdata.image" type="pcre2">(?i)(powershell|cmd|wscript|cscript|mshta|python|perl|ruby)\.exe$</field>
+    <field name="win.eventdata.destinationPort" type="pcre2">^(443|80)$</field>
+    <field name="win.eventdata.destinationIsIpv6" type="pcre2">^false$</field>
+    <field name="win.eventdata.initiated" type="pcre2">^true$</field>
+    <description>DLP: Sysmon scripting engine $(win.eventdata.image) initiating outbound HTTP/S to $(win.eventdata.destinationIp) — possible script-based exfiltration.</description>
+    <mitre>
+      <id>T1048.003</id>
+      <id>T1059</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_script_exfil,data_exfiltration,sysmon_event3,</group>
+  </rule>
+
+  <rule id="117679" level="14" frequency="50" timeframe="300">
+    <if_matched_sid>117678</if_matched_sid>
+    <description>DLP: High-frequency scripting engine outbound connections — active data exfiltration campaign via scripts.</description>
+    <mitre>
+      <id>T1048.003</id>
+    </mitre>
+    <group>dlp_script_exfil_burst,data_exfiltration,sysmon_event3,</group>
+  </rule>
+
+  <!-- ===== Sysmon Event 11: File Created — Data Staging Detection ===== -->
+
+  <rule id="117680" level="10">
+    <if_sid>61613</if_sid>
+    <field name="win.eventdata.targetFilename" type="pcre2">(?i)\\\\(Temp|tmp|AppData\\\\Local\\\\Temp)\\\\.*\.(zip|7z|rar|tar|gz|cab)</field>
+    <description>DLP: Sysmon archive file created in temp directory by $(win.eventdata.image) — possible data staging.</description>
+    <mitre>
+      <id>T1074.001</id>
+      <id>T1560.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_staging_archive,data_staging,sysmon_event_11,</group>
+  </rule>
+
+  <rule id="117681" level="10">
+    <if_sid>61613</if_sid>
+    <field name="win.eventdata.targetFilename" type="pcre2">(?i)\\\\(Temp|tmp|Public|ProgramData)\\\\.*\.(sql|csv|xlsx|docx|pdf|pst|ost|mdb|accdb|kdbx|key|pem|pfx|p12|bak)</field>
+    <description>DLP: Sysmon sensitive file type created in staging directory by $(win.eventdata.image) — possible data collection.</description>
+    <mitre>
+      <id>T1074.001</id>
+      <id>T1005</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_sensitive_staging,data_staging,sysmon_event_11,</group>
+  </rule>
+
+  <rule id="117682" level="12">
+    <if_sid>61613</if_sid>
+    <field name="win.eventdata.image" type="pcre2">(?i)(powershell|cmd|wscript|cscript|python)\.exe$</field>
+    <field name="win.eventdata.targetFilename" type="pcre2">(?i)\.(zip|7z|rar|tar|gz|enc|gpg|aes)</field>
+    <description>DLP: Sysmon scripting engine created archive/encrypted file — possible automated data packaging for exfiltration.</description>
+    <mitre>
+      <id>T1560.001</id>
+      <id>T1059</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_script_archive,data_staging,sysmon_event_11,</group>
+  </rule>
+
+  <rule id="117683" level="14" frequency="20" timeframe="120">
+    <if_matched_sid>117681</if_matched_sid>
+    <description>DLP: Mass sensitive file creation in staging directory — active data collection in progress.</description>
+    <mitre>
+      <id>T1074.001</id>
+    </mitre>
+    <group>dlp_mass_staging,data_staging,sysmon_event_11,</group>
+  </rule>
+
+  <!-- ===== Sysmon Event 10: Process Access — Credential Theft ===== -->
+
+  <rule id="117684" level="14">
+    <if_sid>61612</if_sid>
+    <field name="win.eventdata.targetImage" type="pcre2">(?i)\\\\lsass\.exe$</field>
+    <field name="win.eventdata.grantedAccess" type="pcre2">0x1010|0x1038|0x1F0FFF|0x1F1FFF|0x143A</field>
+    <description>DLP: Sysmon LSASS memory access by $(win.eventdata.sourceImage) — credential theft risk detected.</description>
+    <mitre>
+      <id>T1003.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_credential_dump,credential_access,sysmon_event_10,</group>
+  </rule>
+
+  <rule id="117685" level="13">
+    <if_sid>61612</if_sid>
+    <field name="win.eventdata.targetImage" type="pcre2">(?i)\\\\(lsass|winlogon|services|svchost)\.exe$</field>
+    <field name="win.eventdata.sourceImage" type="pcre2">(?i)\\\\(Temp|tmp|Downloads|Public|AppData)\\\\</field>
+    <description>DLP: Sysmon process access to $(win.eventdata.targetImage) from suspicious path — possible credential harvesting.</description>
+    <mitre>
+      <id>T1003</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_credential_access,credential_access,sysmon_event_10,</group>
+  </rule>
+
+  <!-- ===== Sysmon Event 15: Alternate Data Streams — Covert Data Hiding ===== -->
+
+  <rule id="117686" level="12">
+    <if_sid>61617</if_sid>
+    <field name="win.eventdata.targetFilename" type="pcre2">(?i).*:Zone\.Identifier$</field>
+    <field name="win.eventdata.image" type="pcre2">(?i)(powershell|cmd|wscript|cscript|python|mshta)\.exe$</field>
+    <description>DLP: Sysmon Zone.Identifier ADS written by scripting engine $(win.eventdata.image) — possible downloaded content manipulation.</description>
+    <mitre>
+      <id>T1564.004</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_ads_zone,defense_evasion,sysmon_event_15,</group>
+  </rule>
+
+  <rule id="117687" level="13">
+    <if_sid>61617</if_sid>
+    <field name="win.eventdata.targetFilename" type="pcre2">(?i).*:(?!Zone\.Identifier$)[^\\]+$</field>
+    <description>DLP: Sysmon non-standard Alternate Data Stream created by $(win.eventdata.image) — possible covert data hiding.</description>
+    <mitre>
+      <id>T1564.004</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_ads_hidden,data_exfiltration,sysmon_event_15,</group>
+  </rule>
+
+  <!-- ===== Sysmon Event 22: DNS Query — Exfiltration / Tunneling ===== -->
+
+  <rule id="117688" level="10">
+    <if_sid>61650</if_sid>
+    <field name="win.eventdata.queryName" type="pcre2">(?i)(pastebin\.com|transfer\.sh|file\.io|anonfiles\.com|gofile\.io|catbox\.moe|pixeldrain\.com|wetransfer\.com|sendspace\.com)</field>
+    <description>DLP: Sysmon DNS lookup for file-sharing service $(win.eventdata.queryName) by $(win.eventdata.image) — possible data exfiltration channel.</description>
+    <mitre>
+      <id>T1567.002</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_fileshare_dns,data_exfiltration,sysmon_event_22,</group>
+  </rule>
+
+  <rule id="117689" level="12">
+    <if_sid>61650</if_sid>
+    <!-- 30+ char subdomains are a strong indicator of DNS tunneling; typical labels are under 20 chars -->
+    <field name="win.eventdata.queryName" type="pcre2">^[a-zA-Z0-9]{30,}\.</field>
+    <description>DLP: Sysmon DNS query with unusually long subdomain by $(win.eventdata.image) — possible DNS tunneling exfiltration.</description>
+    <mitre>
+      <id>T1048.001</id>
+      <id>T1071.004</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_dns_tunnel,data_exfiltration,sysmon_event_22,</group>
+  </rule>
+
+  <rule id="117690" level="13">
+    <if_sid>61650</if_sid>
+    <field name="win.eventdata.queryName" type="pcre2">(?i)\.(onion\.|i2p\.|bit\.|bazar\.)</field>
+    <description>DLP: Sysmon DNS query for dark web domain $(win.eventdata.queryName) — possible covert data exfiltration.</description>
+    <mitre>
+      <id>T1048.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_darkweb_dns,data_exfiltration,sysmon_event_22,</group>
+  </rule>
+
+  <rule id="117691" level="10">
+    <if_sid>61650</if_sid>
+    <field name="win.eventdata.image" type="pcre2">(?i)(rclone|megasync|megacmd|gdrive|telegram|discord)\.exe$</field>
+    <description>DLP: Sysmon DNS query by cloud/messaging app $(win.eventdata.image) — monitor for data exfiltration.</description>
+    <mitre>
+      <id>T1567</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_cloud_dns,data_exfiltration,sysmon_event_22,</group>
+  </rule>
+
+  <rule id="117692" level="14" frequency="100" timeframe="60">
+    <if_matched_sid>117689</if_matched_sid>
+    <description>DLP: Burst of DNS queries with long subdomains — active DNS tunneling exfiltration detected.</description>
+    <mitre>
+      <id>T1048.001</id>
+      <id>T1071.004</id>
+    </mitre>
+    <group>dlp_dns_tunnel_burst,data_exfiltration,sysmon_event_22,</group>
+  </rule>
+
+  <!-- ===== Sysmon Event 23: File Delete — Anti-Forensics After Exfil ===== -->
+
+  <rule id="117693" level="10">
+    <if_sid>109206</if_sid>
+    <field name="win.eventdata.targetFilename" type="pcre2">(?i)\\\\(Temp|tmp|AppData\\\\Local\\\\Temp)\\\\.*\.(zip|7z|rar|tar|gz|enc|gpg)</field>
+    <description>DLP: Sysmon archive/encrypted file deleted from temp by $(win.eventdata.image) — possible post-exfiltration cleanup.</description>
+    <mitre>
+      <id>T1070.004</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_cleanup,anti_forensics,sysmon_event_23,</group>
+  </rule>
+
+  <rule id="117694" level="12">
+    <if_sid>109206</if_sid>
+    <field name="win.eventdata.image" type="pcre2">(?i)(sdelete|eraser|cipher\.exe|bleachbit|ccleaner)</field>
+    <description>DLP: Sysmon secure deletion tool $(win.eventdata.image) used — possible evidence destruction after exfiltration.</description>
+    <mitre>
+      <id>T1070.004</id>
+      <id>T1485</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_secure_delete,anti_forensics,sysmon_event_23,</group>
+  </rule>
+
+  <!-- ===== Sysmon Event 12/13: Registry — DLP Policy Tampering ===== -->
+
+  <rule id="117695" level="13">
+    <if_sid>61615</if_sid>
+    <field name="win.eventdata.targetObject" type="pcre2">(?i)HKLM\\\\SOFTWARE\\\\Policies\\\\Microsoft\\\\Windows\\\\RemovableStorageDevices</field>
+    <description>DLP: Sysmon registry change to removable storage policy — possible DLP bypass attempt.</description>
+    <mitre>
+      <id>T1112</id>
+      <id>T1052.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_policy_tampering,defense_evasion,sysmon_event_13,</group>
+  </rule>
+
+  <rule id="117696" level="12">
+    <if_sid>61615</if_sid>
+    <field name="win.eventdata.targetObject" type="pcre2">(?i)HKLM\\\\SOFTWARE\\\\Policies\\\\Microsoft\\\\Windows Defender\\\\(Real-Time Protection|Exclusions)</field>
+    <description>DLP: Sysmon Windows Defender policy modified — possible security control bypass to facilitate exfiltration.</description>
+    <mitre>
+      <id>T1562.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_defender_tampering,defense_evasion,sysmon_event_13,</group>
+  </rule>
+
+  <rule id="117697" level="12">
+    <if_sid>61614</if_sid>
+    <field name="win.eventdata.targetObject" type="pcre2">(?i)HKLM\\\\SOFTWARE\\\\Policies\\\\Microsoft\\\\Windows\\\\DataCollection</field>
+    <description>DLP: Sysmon data collection policy registry key modified — possible audit evasion.</description>
+    <mitre>
+      <id>T1112</id>
+      <id>T1562.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_audit_tampering,defense_evasion,sysmon_event_12,</group>
+  </rule>
+
+  <!-- ===== Sysmon Event 1: Enhanced Process-based DLP with Image Path Context ===== -->
+
+  <rule id="117698" level="12">
+    <if_sid>61603</if_sid>
+    <field name="win.eventdata.image" type="pcre2">(?i)\\\\(rclone|megacmd|winscp|pscp|filezilla|cyberduck)\.exe$</field>
+    <field name="win.eventdata.parentImage" type="pcre2">(?i)\\\\(cmd|powershell|explorer)\.exe$</field>
+    <description>DLP: Sysmon file-transfer tool $(win.eventdata.image) launched from $(win.eventdata.parentImage) — possible user-initiated exfiltration.</description>
+    <mitre>
+      <id>T1567.002</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_transfer_tool,data_exfiltration,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117699" level="13">
+    <if_sid>61603</if_sid>
+    <field name="win.eventdata.image" type="pcre2">(?i)\\\\(Temp|tmp|Downloads|AppData)\\\\[^\\]+\.exe$</field>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(upload|exfil|send|post|put|transfer|sync|backup)</field>
+    <description>DLP: Sysmon executable from temp/downloads path with exfiltration keywords — possible staging tool execution.</description>
+    <mitre>
+      <id>T1074.001</id>
+      <id>T1567</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_temp_exfil_tool,data_exfiltration,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117700" level="12">
+    <if_sid>61603</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)Compress-Archive\s+.*-Path\s+.*\\\\(Documents|Desktop|Finance|HR|Confidential|Shares)</field>
+    <description>DLP: Sysmon PowerShell Compress-Archive targeting sensitive directory — possible data staging.</description>
+    <mitre>
+      <id>T1560.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_ps_archive,data_staging,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117701" level="13">
+    <if_sid>61603</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(ConvertTo-Html|Export-Csv|Export-Clixml|Out-File)\s+.*\\\\(Temp|tmp|Public|AppData)</field>
+    <description>DLP: Sysmon PowerShell data export to staging directory — possible data collection for exfiltration.</description>
+    <mitre>
+      <id>T1074.001</id>
+      <id>T1119</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_ps_export,data_staging,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117702" level="12">
+    <if_sid>61603</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)Get-ChildItem\s+.*-Recurse.*\|\s*(Copy-Item|Move-Item|Compress-Archive)</field>
+    <description>DLP: Sysmon recursive file enumeration piped to copy/archive — possible bulk data collection.</description>
+    <mitre>
+      <id>T1005</id>
+      <id>T1119</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_ps_collection,data_collection,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117703" level="14">
+    <if_sid>61603</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(Invoke-WebRequest|Invoke-RestMethod|curl)\s+.*(POST|PUT)\s+.*(-InFile|-Body\s+\(Get-Content|-d\s+@)</field>
+    <description>DLP: Sysmon HTTP file upload via PowerShell/curl — active data exfiltration attempt.</description>
+    <mitre>
+      <id>T1048.003</id>
+      <id>T1567</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_http_upload,data_exfiltration,sysmon_event1,</group>
+  </rule>
+
+  <!-- ================================================================
+       Linux-specific DLP Rules
+       Leverages Sysmon for Linux Events 1, 3, 11, 23
+       for endpoint visibility into data loss scenarios on Linux.
+       ================================================================ -->
+
+  <!-- ===== Linux Sysmon Event 1: Process Creation — Exfiltration Tools ===== -->
+
+  <rule id="117704" level="10">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)(cp\s+-[rR]|rsync\s+(-a|--archive))\s+.*(\/home\/|\/etc\/|\/opt\/|\/var\/|\/srv\/|\/root\/)</field>
+    <description>DLP: Linux bulk file copy from sensitive directory — possible data exfiltration.</description>
+    <mitre>
+      <id>T1005</id>
+      <id>T1039</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_bulk_copy,data_exfiltration,linux,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117705" level="12">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)(tar\s+.*c[zvf]|zip\s+-r|7z\s+a|gzip|bzip2)\s+.*(\/home\/|\/etc\/|\/opt\/|\/var\/|\/srv\/|\/root\/)</field>
+    <description>DLP: Linux compression of sensitive directory — possible data staging for exfiltration.</description>
+    <mitre>
+      <id>T1560.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_archive,data_staging,linux,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117706" level="12">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)rclone\s+(copy|sync|move|mount)</field>
+    <description>DLP: Linux rclone cloud transfer detected — possible data exfiltration to cloud storage.</description>
+    <mitre>
+      <id>T1567.002</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_cloud_exfil,data_exfiltration,linux,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117707" level="10">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)(megacmd|megacopy|megatools|mega-put|mega-sync)</field>
+    <description>DLP: Linux MEGA cloud tool usage detected — possible data exfiltration.</description>
+    <mitre>
+      <id>T1567.002</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_cloud_exfil,data_exfiltration,linux,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117708" level="10">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)(gsutil\s+cp|aws\s+s3\s+cp|az\s+storage\s+blob\s+upload|azcopy)</field>
+    <description>DLP: Linux cloud CLI upload detected — possible data exfiltration to cloud provider.</description>
+    <mitre>
+      <id>T1567.002</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_cloud_exfil,data_exfiltration,linux,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117709" level="13">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)(iodine|dnscat2|dns2tcp|dnsexfiltrator)</field>
+    <description>DLP: Linux DNS tunneling tool detected — possible data exfiltration over DNS.</description>
+    <mitre>
+      <id>T1048.001</id>
+      <id>T1071.004</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_dns_exfil,data_exfiltration,linux,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117710" level="12">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)(cat|head|tail|xxd|strings)\s+.*(\/etc\/shadow|\/etc\/passwd|\/etc\/sudoers|\.ssh\/)</field>
+    <description>DLP: Linux credential or auth file access — possible credential harvesting.</description>
+    <mitre>
+      <id>T1552.001</id>
+      <id>T1003.008</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_credential_access,credential_access,linux,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117711" level="12">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)(mimipenguin|linpeas|linux-exploit-suggester|LaZagne)</field>
+    <description>DLP: Linux credential dumping tool detected — sensitive authentication data at risk.</description>
+    <mitre>
+      <id>T1003.008</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_credential_dump,credential_access,linux,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117712" level="12">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)(mysqldump|pg_dump|mongodump|sqlite3\s+.*\.dump|redis-cli\s+.*SAVE)</field>
+    <description>DLP: Linux database export utility executed — possible bulk data exfiltration.</description>
+    <mitre>
+      <id>T1005</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_database_exfil,data_exfiltration,linux,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117713" level="12">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)(curl|wget)\s+.*(--data-binary|--upload-file|-T\s+|-d\s+@|--post-file)</field>
+    <description>DLP: Linux HTTP file upload via curl/wget — possible data exfiltration over web.</description>
+    <mitre>
+      <id>T1048.003</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_http_exfil,data_exfiltration,linux,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117714" level="13">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)(ncat|nc|nmap|socat)\s+.*(\||&lt;|--stdin|-)</field>
+    <description>DLP: Linux data piped through netcat/socat — possible covert exfiltration channel.</description>
+    <mitre>
+      <id>T1048.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_covert_channel,data_exfiltration,linux,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117715" level="10">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)(scp|sftp|rsync)\s+.*@.*:</field>
+    <description>DLP: Linux file transfer to remote host via SCP/SFTP/rsync — possible data exfiltration.</description>
+    <mitre>
+      <id>T1048.003</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_remote_transfer,data_exfiltration,linux,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117716" level="8">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)(scrot|gnome-screenshot|import\s+-window|xdotool|xwd|spectacle|flameshot)</field>
+    <description>DLP: Linux screen capture tool executed — monitor for data exfiltration via screenshots.</description>
+    <mitre>
+      <id>T1113</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_screen_capture,data_collection,linux,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117717" level="10">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)(xclip|xsel|wl-copy|wl-paste)\s+.*(--output|--clipboard|-o|-b)</field>
+    <description>DLP: Linux clipboard data access detected — possible sensitive data harvesting.</description>
+    <mitre>
+      <id>T1115</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_clipboard,data_collection,linux,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117718" level="12">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)(base64\s+|openssl\s+enc|gpg\s+(-e|--encrypt|--symmetric))\s+</field>
+    <description>DLP: Linux data encoding or encryption before transfer — possible obfuscated exfiltration.</description>
+    <mitre>
+      <id>T1132.001</id>
+      <id>T1560.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_encoded_exfil,data_exfiltration,linux,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117719" level="10">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)(grep|egrep|awk|sed)\s+.*(password|secret|api_key|token|credential|private.?key|ssn|credit.?card)</field>
+    <description>DLP: Linux search for sensitive data patterns — possible credential or PII harvesting.</description>
+    <mitre>
+      <id>T1552.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_sensitive_search,credential_access,linux,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117720" level="10">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)(shred|srm|wipe|secure-delete)\s+</field>
+    <description>DLP: Linux secure deletion tool used — possible evidence destruction after exfiltration.</description>
+    <mitre>
+      <id>T1070.004</id>
+      <id>T1485</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_secure_delete,anti_forensics,linux,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117721" level="10">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)(sendmail|mutt|mail|mailx|swaks)\s+.*(-a\s+|-A\s+|--attach)</field>
+    <description>DLP: Linux command-line email with attachment — possible data exfiltration via email.</description>
+    <mitre>
+      <id>T1048.003</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_email_exfil,data_exfiltration,linux,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117722" level="13">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)(steghide|openstego|snow|stegosuite|outguess)</field>
+    <description>DLP: Linux steganography tool detected — possible covert data exfiltration via hidden data.</description>
+    <mitre>
+      <id>T1027.003</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_steganography,data_exfiltration,linux,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117723" level="12">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)find\s+\/(home|etc|opt|var|srv)\s+.*(-name|-iname)\s+.*\.(pem|key|pfx|p12|kdbx|sql|csv|xlsx|pdf|docx|bak)</field>
+    <description>DLP: Linux recursive search for sensitive file types — possible data discovery for exfiltration.</description>
+    <mitre>
+      <id>T1083</id>
+      <id>T1005</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_file_discovery,data_collection,linux,sysmon_event1,</group>
+  </rule>
+
+  <!-- ===== Linux Sysmon Event 3: Network Connection — Exfiltration Channels ===== -->
+
+  <rule id="117724" level="10">
+    <if_sid>114133</if_sid>
+    <field name="eventdata.destinationPort" type="pcre2">^(4444|5555|8888|1337|31337|9001|9030)$</field>
+    <field name="eventdata.initiated" type="pcre2">^true$</field>
+    <description>DLP: Linux outbound connection on suspicious port $(eventdata.destinationPort) by $(eventdata.image) — possible covert exfiltration.</description>
+    <mitre>
+      <id>T1048.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_suspicious_port,data_exfiltration,linux,sysmon_event3,</group>
+  </rule>
+
+  <rule id="117725" level="12">
+    <if_sid>114133</if_sid>
+    <field name="eventdata.image" type="pcre2">(?i)\/(python[23]?|perl|ruby|node|php|bash|sh|dash)$</field>
+    <field name="eventdata.destinationPort" type="pcre2">^(443|80)$</field>
+    <field name="eventdata.initiated" type="pcre2">^true$</field>
+    <description>DLP: Linux scripting engine $(eventdata.image) initiating outbound HTTP/S — possible script-based exfiltration.</description>
+    <mitre>
+      <id>T1048.003</id>
+      <id>T1059</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_script_exfil,data_exfiltration,linux,sysmon_event3,</group>
+  </rule>
+
+  <rule id="117726" level="10">
+    <if_sid>114133</if_sid>
+    <field name="eventdata.image" type="pcre2">(?i)\/(rclone|megasync|megacmd|gdrive|telegram-desktop|Discord)$</field>
+    <field name="eventdata.initiated" type="pcre2">^true$</field>
+    <description>DLP: Linux cloud/messaging app network connection by $(eventdata.image) — monitor for data exfiltration.</description>
+    <mitre>
+      <id>T1567.002</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_cloud_app_network,data_exfiltration,linux,sysmon_event3,</group>
+  </rule>
+
+  <!-- ===== Linux Sysmon Event 11: File Created — Data Staging Detection ===== -->
+
+  <rule id="117727" level="10">
+    <if_sid>114136</if_sid>
+    <field name="eventdata.targetFilename" type="pcre2">(?i)^\/(tmp|var\/tmp|dev\/shm)\/.*\.(zip|7z|rar|tar|gz|tgz|bz2|xz|cab)</field>
+    <description>DLP: Linux archive file created in temp directory by $(eventdata.image) — possible data staging.</description>
+    <mitre>
+      <id>T1074.001</id>
+      <id>T1560.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_staging_archive,data_staging,linux,sysmon_event_11,</group>
+  </rule>
+
+  <rule id="117728" level="10">
+    <if_sid>114136</if_sid>
+    <field name="eventdata.targetFilename" type="pcre2">(?i)^\/(tmp|var\/tmp|dev\/shm)\/.*\.(sql|csv|xlsx|docx|pdf|pst|ost|mdb|accdb|kdbx|key|pem|pfx|p12|bak|enc|gpg)</field>
+    <description>DLP: Linux sensitive file type created in staging directory by $(eventdata.image) — possible data collection.</description>
+    <mitre>
+      <id>T1074.001</id>
+      <id>T1005</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_sensitive_staging,data_staging,linux,sysmon_event_11,</group>
+  </rule>
+
+  <!-- ===== Linux Sysmon Event 23: File Delete — Anti-Forensics After Exfil ===== -->
+
+  <rule id="117729" level="10">
+    <if_sid>114138</if_sid>
+    <field name="eventdata.targetFilename" type="pcre2">(?i)^\/(tmp|var\/tmp|dev\/shm)\/.*\.(zip|7z|rar|tar|gz|tgz|enc|gpg|aes)</field>
+    <description>DLP: Linux archive/encrypted file deleted from temp by $(eventdata.image) — possible post-exfiltration cleanup.</description>
+    <mitre>
+      <id>T1070.004</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_cleanup,anti_forensics,linux,sysmon_event_23,</group>
+  </rule>
+
+  <!-- ===== Linux Frequency-based DLP Alerts ===== -->
+
+  <rule id="117730" level="14" frequency="10" timeframe="120">
+    <if_matched_sid>117704</if_matched_sid>
+    <description>DLP: High frequency Linux bulk file copy operations — active data exfiltration in progress.</description>
+    <mitre>
+      <id>T1005</id>
+      <id>T1039</id>
+    </mitre>
+    <group>dlp_active_exfil,data_exfiltration,linux,</group>
+  </rule>
+
+  <rule id="117731" level="14" frequency="5" timeframe="300">
+    <if_matched_sid>117706</if_matched_sid>
+    <description>DLP: Repeated Linux cloud transfer tool usage — sustained data exfiltration campaign.</description>
+    <mitre>
+      <id>T1567.002</id>
+    </mitre>
+    <group>dlp_sustained_exfil,data_exfiltration,linux,</group>
+  </rule>
+
+  <rule id="117732" level="14" frequency="50" timeframe="300">
+    <if_matched_sid>117725</if_matched_sid>
+    <description>DLP: High-frequency Linux scripting engine outbound connections — active script-based exfiltration.</description>
+    <mitre>
+      <id>T1048.003</id>
+    </mitre>
+    <group>dlp_script_exfil_burst,data_exfiltration,linux,</group>
+  </rule>
+
+  <rule id="117733" level="14" frequency="20" timeframe="120">
+    <if_matched_sid>117728</if_matched_sid>
+    <description>DLP: Mass sensitive file creation in Linux staging directory — active data collection in progress.</description>
+    <mitre>
+      <id>T1074.001</id>
+    </mitre>
+    <group>dlp_mass_staging,data_staging,linux,</group>
+  </rule>
+
+  <!-- ================================================================
+       macOS-specific DLP Rules
+       Leverages Sysmon for Linux/macOS Events 1, 3, 11, 23
+       for endpoint visibility into data loss scenarios on macOS.
+       ================================================================ -->
+
+  <!-- ===== macOS Sysmon Event 1: Process Creation — Exfiltration Tools ===== -->
+
+  <rule id="117734" level="10">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)(cp\s+-R|ditto|rsync\s+(-a|--archive))\s+.*\/Users\/</field>
+    <description>DLP: macOS bulk file copy from user directory — possible data exfiltration.</description>
+    <mitre>
+      <id>T1005</id>
+      <id>T1039</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_bulk_copy,data_exfiltration,macos,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117735" level="12">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)(tar\s+.*c[zvf]|zip\s+-r|ditto\s+-c)\s+.*\/Users\/</field>
+    <description>DLP: macOS compression of user directory — possible data staging for exfiltration.</description>
+    <mitre>
+      <id>T1560.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_archive,data_staging,macos,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117736" level="12">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)hdiutil\s+create\s+.*(-srcfolder|\/Users\/|\/Volumes\/)</field>
+    <description>DLP: macOS disk image creation from user data — possible data staging via .dmg.</description>
+    <mitre>
+      <id>T1560.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_dmg_staging,data_staging,macos,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117737" level="12">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)security\s+(dump-keychain|find-generic-password|find-internet-password|export\s+-k)</field>
+    <description>DLP: macOS Keychain credential access — possible credential harvesting.</description>
+    <mitre>
+      <id>T1555.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_credential_access,credential_access,macos,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117738" level="8">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)screencapture\s+</field>
+    <description>DLP: macOS screen capture executed — monitor for data exfiltration via screenshots.</description>
+    <mitre>
+      <id>T1113</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_screen_capture,data_collection,macos,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117739" level="10">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)(pbcopy|pbpaste|osascript\s+.*the\s+clipboard)</field>
+    <description>DLP: macOS clipboard data access detected — possible sensitive data harvesting.</description>
+    <mitre>
+      <id>T1115</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_clipboard,data_collection,macos,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117740" level="12">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)osascript\s+.*(-e\s+|\.scpt).*(curl|do\s+shell\s+script|http|upload|send)</field>
+    <description>DLP: macOS AppleScript with network or shell activity — possible script-based exfiltration.</description>
+    <mitre>
+      <id>T1059.002</id>
+      <id>T1048.003</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_applescript_exfil,data_exfiltration,macos,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117741" level="10">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)(curl|wget)\s+.*(--data-binary|--upload-file|-T\s+|-d\s+@|--post-file)</field>
+    <field name="eventdata.image" type="pcre2">(?i)^\/(usr\/bin|opt\/homebrew)</field>
+    <description>DLP: macOS HTTP file upload via curl/wget — possible data exfiltration over web.</description>
+    <mitre>
+      <id>T1048.003</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_http_exfil,data_exfiltration,macos,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117742" level="10">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)(scp|sftp|rsync)\s+.*@.*:</field>
+    <field name="eventdata.image" type="pcre2">(?i)^\/(usr\/bin|opt\/homebrew)</field>
+    <description>DLP: macOS file transfer to remote host via SCP/SFTP/rsync — possible data exfiltration.</description>
+    <mitre>
+      <id>T1048.003</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_remote_transfer,data_exfiltration,macos,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117743" level="12">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)rclone\s+(copy|sync|move|mount)</field>
+    <field name="eventdata.image" type="pcre2">(?i)^\/(usr\/local\/bin|opt\/homebrew)</field>
+    <description>DLP: macOS rclone cloud transfer detected — possible data exfiltration to cloud storage.</description>
+    <mitre>
+      <id>T1567.002</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_cloud_exfil,data_exfiltration,macos,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117744" level="12">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)(base64\s+|openssl\s+enc|gpg\s+(-e|--encrypt|--symmetric))\s+</field>
+    <field name="eventdata.image" type="pcre2">(?i)^\/(usr\/bin|opt\/homebrew)</field>
+    <description>DLP: macOS data encoding or encryption before transfer — possible obfuscated exfiltration.</description>
+    <mitre>
+      <id>T1132.001</id>
+      <id>T1560.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_encoded_exfil,data_exfiltration,macos,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117745" level="12">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)(grep|egrep|awk|sed|mdfind)\s+.*(password|secret|api_key|token|credential|private.?key|kSecAttrAccount)</field>
+    <description>DLP: macOS search for sensitive data patterns — possible credential or PII harvesting.</description>
+    <mitre>
+      <id>T1552.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_sensitive_search,credential_access,macos,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117746" level="12">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)find\s+\/(Users|Volumes|private)\s+.*(-name|-iname)\s+.*\.(pem|key|pfx|p12|kdbx|sql|csv|xlsx|pdf|docx|bak)</field>
+    <description>DLP: macOS recursive search for sensitive file types — possible data discovery for exfiltration.</description>
+    <mitre>
+      <id>T1083</id>
+      <id>T1005</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_file_discovery,data_collection,macos,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117747" level="12">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)(mysqldump|pg_dump|mongodump|sqlite3\s+.*\.dump)</field>
+    <field name="eventdata.image" type="pcre2">(?i)^\/(usr\/bin|usr\/local\/bin|opt\/homebrew)</field>
+    <description>DLP: macOS database export utility executed — possible bulk data exfiltration.</description>
+    <mitre>
+      <id>T1005</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_database_exfil,data_exfiltration,macos,sysmon_event1,</group>
+  </rule>
+
+  <rule id="117748" level="10">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)(shred|srm|rm\s+-P)\s+</field>
+    <field name="eventdata.image" type="pcre2">(?i)^\/(usr\/bin|opt\/homebrew|bin)</field>
+    <description>DLP: macOS secure deletion tool used — possible evidence destruction after exfiltration.</description>
+    <mitre>
+      <id>T1070.004</id>
+      <id>T1485</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_secure_delete,anti_forensics,macos,sysmon_event1,</group>
+  </rule>
+
+  <!-- ===== macOS Sysmon Event 3: Network Connection — Exfiltration Channels ===== -->
+
+  <rule id="117749" level="10">
+    <if_sid>114133</if_sid>
+    <field name="eventdata.destinationPort" type="pcre2">^(4444|5555|8888|1337|31337|9001|9030)$</field>
+    <field name="eventdata.initiated" type="pcre2">^true$</field>
+    <field name="eventdata.image" type="pcre2">(?i)^\/(usr|Applications|opt\/homebrew)</field>
+    <description>DLP: macOS outbound connection on suspicious port $(eventdata.destinationPort) by $(eventdata.image) — possible covert exfiltration.</description>
+    <mitre>
+      <id>T1048.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_suspicious_port,data_exfiltration,macos,sysmon_event3,</group>
+  </rule>
+
+  <rule id="117750" level="12">
+    <if_sid>114133</if_sid>
+    <field name="eventdata.image" type="pcre2">(?i)\/(python[23]?|perl|ruby|node|php|bash|sh|zsh|osascript)$</field>
+    <field name="eventdata.destinationPort" type="pcre2">^(443|80)$</field>
+    <field name="eventdata.initiated" type="pcre2">^true$</field>
+    <description>DLP: macOS scripting engine $(eventdata.image) initiating outbound HTTP/S — possible script-based exfiltration.</description>
+    <mitre>
+      <id>T1048.003</id>
+      <id>T1059</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_script_exfil,data_exfiltration,macos,sysmon_event3,</group>
+  </rule>
+
+  <!-- ===== macOS Sysmon Event 11: File Created — Data Staging Detection ===== -->
+
+  <rule id="117751" level="10">
+    <if_sid>114136</if_sid>
+    <field name="eventdata.targetFilename" type="pcre2">(?i)^\/(tmp|private\/tmp|var\/folders)\/.*\.(zip|7z|rar|tar|gz|tgz|bz2|xz|dmg)</field>
+    <description>DLP: macOS archive/disk image created in temp directory by $(eventdata.image) — possible data staging.</description>
+    <mitre>
+      <id>T1074.001</id>
+      <id>T1560.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_staging_archive,data_staging,macos,sysmon_event_11,</group>
+  </rule>
+
+  <rule id="117752" level="10">
+    <if_sid>114136</if_sid>
+    <field name="eventdata.targetFilename" type="pcre2">(?i)^\/(tmp|private\/tmp|var\/folders)\/.*\.(sql|csv|xlsx|docx|pdf|pst|ost|mdb|accdb|kdbx|key|pem|pfx|p12|bak|enc|gpg)</field>
+    <description>DLP: macOS sensitive file type created in staging directory by $(eventdata.image) — possible data collection.</description>
+    <mitre>
+      <id>T1074.001</id>
+      <id>T1005</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_sensitive_staging,data_staging,macos,sysmon_event_11,</group>
+  </rule>
+
+  <!-- ===== macOS Sysmon Event 23: File Delete — Anti-Forensics After Exfil ===== -->
+
+  <rule id="117753" level="10">
+    <if_sid>114138</if_sid>
+    <field name="eventdata.targetFilename" type="pcre2">(?i)^\/(tmp|private\/tmp|var\/folders)\/.*\.(zip|7z|rar|tar|gz|tgz|enc|gpg|aes|dmg)</field>
+    <description>DLP: macOS archive/encrypted file deleted from temp by $(eventdata.image) — possible post-exfiltration cleanup.</description>
+    <mitre>
+      <id>T1070.004</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_cleanup,anti_forensics,macos,sysmon_event_23,</group>
+  </rule>
+
+  <!-- ===== macOS Frequency-based DLP Alerts ===== -->
+
+  <rule id="117754" level="14" frequency="10" timeframe="120">
+    <if_matched_sid>117734</if_matched_sid>
+    <description>DLP: High frequency macOS bulk file copy operations — active data exfiltration in progress.</description>
+    <mitre>
+      <id>T1005</id>
+      <id>T1039</id>
+    </mitre>
+    <group>dlp_active_exfil,data_exfiltration,macos,</group>
+  </rule>
+
+  <rule id="117755" level="14" frequency="5" timeframe="300">
+    <if_matched_sid>117743</if_matched_sid>
+    <description>DLP: Repeated macOS cloud transfer tool usage — sustained data exfiltration campaign.</description>
+    <mitre>
+      <id>T1567.002</id>
+    </mitre>
+    <group>dlp_sustained_exfil,data_exfiltration,macos,</group>
+  </rule>
+
+  <rule id="117756" level="14" frequency="50" timeframe="300">
+    <if_matched_sid>117750</if_matched_sid>
+    <description>DLP: High-frequency macOS scripting engine outbound connections — active script-based exfiltration.</description>
+    <mitre>
+      <id>T1048.003</id>
+    </mitre>
+    <group>dlp_script_exfil_burst,data_exfiltration,macos,</group>
+  </rule>
+
+  <rule id="117757" level="14" frequency="20" timeframe="120">
+    <if_matched_sid>117752</if_matched_sid>
+    <description>DLP: Mass sensitive file creation in macOS staging directory — active data collection in progress.</description>
+    <mitre>
+      <id>T1074.001</id>
+    </mitre>
+    <group>dlp_mass_staging,data_staging,macos,</group>
+  </rule>
+
+  <!-- ================================================================
+       Google Workspace DLP Rules
+       Leverages Google Workspace audit log events (108500) for
+       data loss prevention monitoring across Google Drive, Gmail,
+       Admin Console, Vault, and OAuth/Token activities.
+       ================================================================ -->
+
+  <!-- ===== Google Drive — External Sharing & Data Exposure ===== -->
+
+  <rule id="117758" level="12">
+    <if_sid>108501</if_sid>
+    <field name="events.name" type="pcre2">(?i)^(change_document_access_scope|change_acl_editors|change_user_access)$</field>
+    <match>shared_externally|people_outside</match>
+    <description>DLP: Google Drive file shared externally — possible data exposure to unauthorized party.</description>
+    <mitre>
+      <id>T1567</id>
+      <id>T1537</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_gws_external_share,data_exposure,</group>
+  </rule>
+
+  <rule id="117759" level="13">
+    <if_sid>108501</if_sid>
+    <field name="events.name" type="pcre2">(?i)^(change_document_access_scope|change_acl_editors|change_user_access)$</field>
+    <match>people_with_link|anyone_with_link|public_on_the_web</match>
+    <description>DLP: Google Drive file shared with public link — sensitive data may be accessible to anyone.</description>
+    <mitre>
+      <id>T1567</id>
+      <id>T1537</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_gws_public_share,data_exposure,</group>
+  </rule>
+
+  <rule id="117760" level="10">
+    <if_sid>108501</if_sid>
+    <field name="events.name" type="pcre2">(?i)^download$</field>
+    <match type="pcre2">(?i)\.(pst|ost|sql|mdb|bak|kdbx|pfx|key|pem|p12|csv|xlsx|docx|pdf)(?=[\"\s,}]|$)</match>
+    <description>DLP: Sensitive file downloaded from Google Drive — possible data exfiltration.</description>
+    <mitre>
+      <id>T1530</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_gws_sensitive_download,data_exfiltration,</group>
+  </rule>
+
+  <!-- NOTE: Tune the domain exclusion pattern below to match your organization's domains -->
+  <rule id="117761" level="12">
+    <if_sid>108501</if_sid>
+    <field name="events.name" type="pcre2">(?i)^change_document_owner$</field>
+    <description>DLP: Google Drive document ownership transferred — possible data exfiltration via ownership change.</description>
+    <mitre>
+      <id>T1537</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_gws_ownership_transfer,data_exfiltration,</group>
+  </rule>
+
+  <!-- ===== Gmail — Email-based Data Exfiltration ===== -->
+
+  <rule id="117762" level="13">
+    <if_sid>108510</if_sid>
+    <field name="events.name" type="pcre2">(?i)^(CREATE_EMAIL_MONITOR|CHANGE_EMAIL_SETTING)$</field>
+    <match type="pcre2">(?i)\b(email_forwarding_destination|auto_forwarding|POP_ACCESS|IMAP_ACCESS)\b</match>
+    <description>DLP: Google Workspace email forwarding or POP/IMAP enabled — possible email exfiltration channel.</description>
+    <mitre>
+      <id>T1114.003</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_gws_email_forward,data_exfiltration,</group>
+  </rule>
+
+  <rule id="117763" level="12">
+    <if_sid>108510</if_sid>
+    <field name="events.name" type="pcre2">(?i)^ADD_GMAIL_DELEGATE$</field>
+    <description>DLP: Gmail delegate account added — potential unauthorized email access for data exfiltration.</description>
+    <mitre>
+      <id>T1114.002</id>
+      <id>T1098</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_gws_email_delegate,data_exfiltration,</group>
+  </rule>
+
+  <!-- ===== Google Workspace DLP Rule Triggers & Policy Changes ===== -->
+
+  <rule id="117764" level="10">
+    <if_sid>108550</if_sid>
+    <field name="events.name" type="pcre2">(?i)^(rule_match|triggered)$</field>
+    <description>DLP: Google Workspace DLP rule triggered — sensitive data detected in content.</description>
+    <mitre>
+      <id>T1048</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_gws_rule_triggered,data_exfiltration,</group>
+  </rule>
+
+  <rule id="117765" level="13">
+    <if_sid>108510</if_sid>
+    <field name="events.name" type="pcre2">(?i)^(DELETE_RULE|CHANGE_DATA_PROTECTION_RULE|DELETE_DATA_PROTECTION_RULE)$</field>
+    <description>DLP: Google Workspace DLP rule disabled or deleted — critical DLP control bypass.</description>
+    <mitre>
+      <id>T1562.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_gws_rule_disabled,defense_evasion,</group>
+  </rule>
+
+  <!-- ===== Google Admin — Privilege Escalation & Policy Weakening ===== -->
+
+  <rule id="117766" level="12">
+    <if_sid>108510</if_sid>
+    <field name="events.name" type="pcre2">(?i)^(ASSIGN_ROLE|GRANT_ADMIN_PRIVILEGE)$</field>
+    <description>DLP: Google Workspace admin role assigned — elevated privileges may enable DLP bypass.</description>
+    <mitre>
+      <id>T1098.003</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_gws_admin_role,privilege_escalation,</group>
+  </rule>
+
+  <rule id="117767" level="13">
+    <if_sid>108510</if_sid>
+    <field name="events.name" type="pcre2">(?i)^(ENFORCE_STRONG_AUTHENTICATION|ALLOW_STRONG_AUTHENTICATION|CHANGE_ALLOWED_TWO_STEP_VERIFICATION_METHODS)$</field>
+    <match type="pcre2">(?i)(false|off|disabled|none)</match>
+    <description>DLP: Google Workspace 2-Step Verification enforcement weakened — increased account compromise risk for data theft.</description>
+    <mitre>
+      <id>T1556</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_gws_2sv_weakened,defense_evasion,</group>
+  </rule>
+
+  <!-- ===== Google Vault — eDiscovery Data Access ===== -->
+
+  <rule id="117768" level="12">
+    <if_sid>108510</if_sid>
+    <field name="events.name" type="pcre2">(?i)^(CREATE_EXPORT|EXPORT_STARTED|EXPORT_COMPLETED)$</field>
+    <description>DLP: Google Vault export initiated — potential bulk data access via eDiscovery.</description>
+    <mitre>
+      <id>T1114.002</id>
+      <id>T1213</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_gws_vault_export,data_collection,</group>
+  </rule>
+
+  <rule id="117769" level="13">
+    <if_sid>108510</if_sid>
+    <field name="events.name" type="pcre2">(?i)^(DOWNLOAD_EXPORT|EXPORT_DOWNLOADED)$</field>
+    <description>DLP: Google Vault export downloaded — possible bulk data exfiltration via eDiscovery.</description>
+    <mitre>
+      <id>T1530</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_gws_vault_download,data_exfiltration,</group>
+  </rule>
+
+  <!-- ===== Google Token/OAuth — Third-party App Data Access ===== -->
+
+  <rule id="117770" level="12">
+    <if_sid>108530</if_sid>
+    <field name="events.name" type="pcre2">(?i)^authorize$</field>
+    <match type="pcre2">(?i)googleapis\.com/auth/(drive|gmail|calendar|contacts|admin\.directory|spreadsheets|documents)</match>
+    <description>DLP: Google Workspace OAuth token authorized with sensitive scopes — third-party app data access risk.</description>
+    <mitre>
+      <id>T1550.001</id>
+      <id>T1528</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_gws_oauth_sensitive,data_exposure,</group>
+  </rule>
+
+  <rule id="117771" level="12">
+    <if_sid>108510</if_sid>
+    <field name="events.name" type="pcre2">(?i)^(AUTHORIZE_API_CLIENT_ACCESS|CHANGE_API_CLIENT_ACCESS)$</field>
+    <description>DLP: Google Workspace API client access changed — potential data access via service account or API.</description>
+    <mitre>
+      <id>T1550.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_gws_api_access,data_exposure,</group>
+  </rule>
+
+  <!-- ===== Google Groups — External Access Changes ===== -->
+
+  <rule id="117772" level="12">
+    <if_sid>108540</if_sid>
+    <field name="events.name" type="pcre2">(?i)^(change_acl_permission|CHANGE_GROUP_SETTING)$</field>
+    <match type="pcre2">(?i)(ANYONE_CAN_JOIN|ALL_MEMBERS_CAN_INVITE|external|public)</match>
+    <description>DLP: Google Groups settings changed to allow external access — possible data exposure channel.</description>
+    <mitre>
+      <id>T1537</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_gws_groups_external,data_exposure,</group>
+  </rule>
+
+  <!-- ===== Google Drive — Sensitivity Label Removal ===== -->
+
+  <rule id="117773" level="12">
+    <if_sid>108501</if_sid>
+    <field name="events.name" type="pcre2">(?i)^(remove_label|change_label)$</field>
+    <description>DLP: Google Drive classification label removed or changed — possible DLP bypass attempt.</description>
+    <mitre>
+      <id>T1562.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_gws_label_change,defense_evasion,</group>
+  </rule>
+
+  <!-- ===== Google Workspace — Frequency-based DLP Alerts ===== -->
+
+  <rule id="117774" level="14" frequency="20" timeframe="300">
+    <if_matched_sid>117758</if_matched_sid>
+    <description>DLP: Mass external file sharing in Google Drive — active data exposure campaign.</description>
+    <mitre>
+      <id>T1567</id>
+      <id>T1537</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_gws_mass_sharing,data_exfiltration,</group>
+  </rule>
+
+  <rule id="117775" level="14" frequency="10" timeframe="300">
+    <if_matched_sid>117764</if_matched_sid>
+    <description>DLP: Repeated Google Workspace DLP rule violations — sustained sensitive data exposure.</description>
+    <mitre>
+      <id>T1048</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_gws_repeated_violation,data_exfiltration,</group>
+  </rule>
+
+  <rule id="117776" level="14" frequency="20" timeframe="300">
+    <if_matched_sid>117760</if_matched_sid>
+    <description>DLP: Mass download of sensitive files from Google Drive — possible data theft in progress.</description>
+    <mitre>
+      <id>T1530</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_gws_mass_download,data_exfiltration,</group>
+  </rule>
+
+  <!-- ========================================================================
+       Synology NAS — DLP Rules  (150200–150212)
+       Detects data exfiltration, bulk operations, and sensitive-data access
+       on Synology storage arrays via WinFileService, Connection, and Backup
+       logs decoded by the synology-winfileservice, synology-connection, and
+       synology-backup decoders.
+       ======================================================================== -->
+
+  <!-- Bulk file deletion on NAS — data destruction or exfiltration cover-up -->
+  <rule id="117777" level="12" frequency="20" timeframe="120">
+    <if_matched_sid>107151</if_matched_sid>
+    <same_source_ip />
+    <description>DLP: Mass file deletion on Synology NAS — possible data destruction or exfiltration cover-up.</description>
+    <mitre>
+      <id>T1485</id>
+      <id>T1070.004</id>
+    </mitre>
+    <group>dlp_synology,data_destruction,</group>
+  </rule>
+
+  <!-- Bulk file rename on NAS — possible ransomware -->
+  <rule id="117778" level="14" frequency="20" timeframe="120">
+    <if_matched_sid>107152</if_matched_sid>
+    <same_source_ip />
+    <description>DLP: Mass file renaming on Synology NAS — possible ransomware activity.</description>
+    <mitre>
+      <id>T1486</id>
+    </mitre>
+    <group>dlp_synology,ransomware,</group>
+  </rule>
+
+  <!-- File operation in a sensitive directory -->
+  <rule id="117779" level="10">
+    <if_sid>107150</if_sid>
+    <field name="data" type="pcre2">(?i)/(Finance|HR|Confidential|Legal|Payroll|Contracts|Executive|Board|PII|GDPR|Sensitive)</field>
+    <description>DLP: File operation in sensitive directory on Synology NAS.</description>
+    <mitre>
+      <id>T1005</id>
+      <id>T1039</id>
+    </mitre>
+    <group>dlp_synology,sensitive_access,</group>
+  </rule>
+
+  <!-- Large file operation (GB/TB range) -->
+  <rule id="117780" level="10">
+    <if_sid>107150</if_sid>
+    <field name="size_unit" type="pcre2">(?i)^(GB|TB)$</field>
+    <description>DLP: Large file operation on Synology NAS — file size in GB/TB range.</description>
+    <mitre>
+      <id>T1030</id>
+    </mitre>
+    <group>dlp_synology,large_transfer,</group>
+  </rule>
+
+  <!-- Archive/compressed file created on NAS — data staging -->
+  <rule id="117781" level="10">
+    <if_sid>107154</if_sid>
+    <field name="data" type="pcre2">(?i)\.(zip|rar|7z|tar|gz|bz2|xz|cab|iso|img)$</field>
+    <description>DLP: Archive or compressed file created on Synology NAS — possible data staging for exfiltration.</description>
+    <mitre>
+      <id>T1560.001</id>
+    </mitre>
+    <group>dlp_synology,data_staging,</group>
+  </rule>
+
+  <!-- Sensitive file type accessed (databases, exports, credentials) -->
+  <rule id="117782" level="10">
+    <if_sid>107150</if_sid>
+    <field name="data" type="pcre2">(?i)\.(pst|ost|mbox|sql|bak|mdf|ldf|csv|xlsx|kdbx|pfx|pem|key|p12|jks|wallet|sav)$</field>
+    <description>DLP: Sensitive file type accessed on Synology NAS — database, export, or credential file.</description>
+    <mitre>
+      <id>T1005</id>
+      <id>T1039</id>
+    </mitre>
+    <group>dlp_synology,sensitive_file_type,</group>
+  </rule>
+
+  <!-- Excessive file operations — data harvesting -->
+  <rule id="117783" level="12" frequency="50" timeframe="300">
+    <if_matched_sid>107150</if_matched_sid>
+    <same_source_ip />
+    <description>DLP: Excessive file operations on Synology NAS — possible data harvesting or exfiltration.</description>
+    <mitre>
+      <id>T1039</id>
+      <id>T1119</id>
+    </mitre>
+    <group>dlp_synology,data_harvesting,</group>
+  </rule>
+
+  <!-- Backup to external/network destination -->
+  <rule id="117784" level="10">
+    <if_sid>107159</if_sid>
+    <field name="backup_location" type="pcre2">(?i)Network|Remote|Cloud|USB|External|rsync|S3|Azure|Google</field>
+    <description>DLP: Synology backup to external or network destination — verify authorised backup target.</description>
+    <mitre>
+      <id>T1537</id>
+      <id>T1567</id>
+    </mitre>
+    <group>dlp_synology,backup_exfil,</group>
+  </rule>
+
+  <!-- Backup task removed — covering tracks -->
+  <rule id="117785" level="12">
+    <if_sid>107163</if_sid>
+    <description>DLP: Synology backup task removed — possible attempt to cover data exfiltration tracks.</description>
+    <mitre>
+      <id>T1070</id>
+    </mitre>
+    <group>dlp_synology,indicator_removal,</group>
+  </rule>
+
+  <!-- Repeated access to sensitive dirs — targeted theft -->
+  <rule id="117786" level="14" frequency="10" timeframe="120">
+    <if_matched_sid>117779</if_matched_sid>
+    <same_source_ip />
+    <description>DLP: Repeated access to sensitive directories on Synology NAS — possible targeted data theft.</description>
+    <mitre>
+      <id>T1005</id>
+      <id>T1039</id>
+      <id>T1567</id>
+    </mitre>
+    <group>dlp_synology,targeted_theft,</group>
+  </rule>
+
+  <!-- Shared folder access via uncommon protocol -->
+  <rule id="117787" level="10">
+    <if_sid>107156</if_sid>
+    <field name="protocol" type="pcre2">(?i)(FTP|WebDAV|NFS)</field>
+    <description>DLP: Synology shared folder accessed via uncommon protocol — possible data exfiltration channel.</description>
+    <mitre>
+      <id>T1048</id>
+    </mitre>
+    <group>dlp_synology,unusual_protocol,</group>
+  </rule>
+
+  <!-- Multiple sensitive file types accessed -->
+  <rule id="117788" level="14" frequency="5" timeframe="300">
+    <if_matched_sid>117782</if_matched_sid>
+    <same_source_ip />
+    <description>DLP: Multiple sensitive files accessed on Synology NAS — possible data exfiltration in progress.</description>
+    <mitre>
+      <id>T1005</id>
+      <id>T1039</id>
+    </mitre>
+    <group>dlp_synology,sensitive_exfil,</group>
+  </rule>
+
+  <!-- File operations after failed auth — compromised account -->
+  <rule id="117789" level="14" timeframe="600">
+    <if_group>synology_file_operation</if_group>
+    <if_matched_group>synology_auth_failure</if_matched_group>
+    <same_source_ip />
+    <description>DLP: File operations on Synology NAS after authentication failures — possible compromised account.</description>
+    <mitre>
+      <id>T1078</id>
+      <id>T1110</id>
+    </mitre>
+    <group>dlp_synology,compromised_account,</group>
+  </rule>
+
+  <!-- =================================================================
+       Email Archive Attachment & Bulk Email Exfiltration Detection
+       Detects archive/compressed files (.gz, .tar, .xz, etc.) sent as
+       email attachments, and alerts when more than 5 emails with
+       attachments are sent within a short timeframe.
+       ================================================================= -->
+
+  <!-- ===== Archive/Compressed File Attachment in Email ===== -->
+
+  <!-- Windows: Archive/compressed file attachment in command-line email -->
+  <rule id="117790" level="12">
+    <if_sid>117637</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)\.(gz|tar|xz|bz2|7z|zip|rar|tgz|cab)\b</field>
+    <description>DLP: Command-line email with archive/compressed file attachment — possible data exfiltration of archived data via email.</description>
+    <mitre>
+      <id>T1048.003</id>
+      <id>T1560.001</id>
+    </mitre>
+    <group>dlp_email_archive_exfil,data_exfiltration,</group>
+  </rule>
+
+  <!-- Linux: Archive/compressed file attachment in command-line email -->
+  <rule id="117791" level="12">
+    <if_sid>117721</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)\.(gz|tar|xz|bz2|7z|zip|rar|tgz|cab)\b</field>
+    <description>DLP: Linux command-line email with archive/compressed file attachment — possible data exfiltration of archived data via email.</description>
+    <mitre>
+      <id>T1048.003</id>
+      <id>T1560.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_email_archive_exfil,data_exfiltration,linux,sysmon_event1,</group>
+  </rule>
+
+  <!-- Office 365: Email sent with archive/compressed file attachment -->
+  <rule id="117792" level="12">
+    <if_sid>108000</if_sid>
+    <field name="office_365.Operation" type="pcre2">(?i)^(Send|SendAs|SendOnBehalf)$</field>
+    <match type="pcre2">(?i)\.(gz|tar|xz|bz2|7z|zip|rar|tgz|cab)\b</match>
+    <description>DLP: Office 365 email sent with archive/compressed file attachment — possible data exfiltration via email.</description>
+    <mitre>
+      <id>T1048.003</id>
+      <id>T1560.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_email_archive_exfil,data_exfiltration,</group>
+  </rule>
+
+  <!-- ===== Frequency-based Bulk Email Exfiltration (>5 emails with attachments) ===== -->
+
+  <!-- Windows: Multiple (>5) emails with attachments in 5 minutes -->
+  <rule id="117793" level="14" frequency="6" timeframe="300">
+    <if_matched_sid>117637</if_matched_sid>
+    <description>DLP: Multiple (>5) command-line emails with attachments sent — possible bulk data exfiltration via email.</description>
+    <mitre>
+      <id>T1048.003</id>
+      <id>T1020</id>
+    </mitre>
+    <group>dlp_email_bulk_exfil,data_exfiltration,</group>
+  </rule>
+
+  <!-- Linux: Multiple (>5) emails with attachments in 5 minutes -->
+  <rule id="117794" level="14" frequency="6" timeframe="300">
+    <if_matched_sid>117721</if_matched_sid>
+    <description>DLP: Multiple (>5) Linux command-line emails with attachments sent — possible bulk data exfiltration via email.</description>
+    <mitre>
+      <id>T1048.003</id>
+      <id>T1020</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_email_bulk_exfil,data_exfiltration,linux,</group>
+  </rule>
+
+  <!-- Office 365: Multiple (>5) emails with archive/compressed attachments in 5 minutes -->
+  <rule id="117795" level="14" frequency="6" timeframe="300">
+    <if_matched_sid>117792</if_matched_sid>
+    <description>DLP: Multiple (>5) Office 365 emails sent with archive/compressed attachments — possible bulk data exfiltration via email.</description>
+    <mitre>
+      <id>T1048.003</id>
+      <id>T1020</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_email_bulk_exfil,data_exfiltration,</group>
+  </rule>
+
+  <!-- ================================================================
+       Document Collection & Archive Exfiltration Pipeline
+       Three-tier escalating detection:
+         Tier 1 (level 3 base / level 10 frequency):
+                             Bulk document collection into local folders
+         Tier 2 (level 12):  Archive/compression of collected documents
+         Tier 3 (level 14):  Transfer of archive to external system
+       Covers: Windows, Linux, macOS, Office 365, Google Workspace,
+               and Synology NAS
+       ================================================================ -->
+
+  <!-- ===== Windows — Tier 1: Document Collection in Local Folders ===== -->
+
+  <!-- Base rule: document file created in user profile directory (for frequency counting) -->
+  <rule id="117796" level="3">
+    <if_sid>61613</if_sid>
+    <field name="win.eventdata.targetFilename" type="pcre2">(?i)\\Users\\[^\\]+\\(?!AppData\\).*\.(docx?|xlsx?|pptx?|pdf|csv|txt|rtf|odt|ods|odp)$</field>
+    <description>DLP: Document file created in user profile directory — $(win.eventdata.targetFilename).</description>
+    <mitre>
+      <id>T1074.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_doc_collection,data_staging,sysmon_event_11,</group>
+  </rule>
+
+  <!-- Frequency: bulk document collection — multiple documents staged in user folders -->
+  <rule id="117797" level="10" frequency="10" timeframe="300">
+    <if_matched_sid>117796</if_matched_sid>
+    <description>DLP: Bulk document collection detected — multiple documents created in user profile directory within 5 minutes — possible local data staging.</description>
+    <mitre>
+      <id>T1074.001</id>
+      <id>T1119</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_doc_collection,data_staging,sysmon_event_11,</group>
+  </rule>
+
+  <!-- ===== Windows — Tier 2: Archive of Collected Documents ===== -->
+
+  <!-- Sysmon Event 11: archive file created in user profile directory (not temp) -->
+  <rule id="117798" level="12">
+    <if_sid>61613</if_sid>
+    <field name="win.eventdata.targetFilename" type="pcre2">(?i)\\Users\\[^\\]+\\(?!AppData\\Local\\Temp\\).*\.(zip|7z|rar|tar|gz|tgz|bz2|xz|cab)$</field>
+    <description>DLP: Archive file created in user profile directory by $(win.eventdata.image) — possible compression of collected documents for exfiltration.</description>
+    <mitre>
+      <id>T1560.001</id>
+      <id>T1074.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_doc_archive,data_staging,sysmon_event_11,</group>
+  </rule>
+
+  <!-- Sysmon Event 1: archive command targeting user profile folder -->
+  <rule id="117799" level="12">
+    <if_sid>61603</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(7z|zip|rar|tar|Compress-Archive|makecab)\s+.*\\Users\\[^\\]+\\[^\\]+</field>
+    <description>DLP: Archive command targeting user profile folder — possible compression of locally collected documents.</description>
+    <mitre>
+      <id>T1560.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_doc_archive,data_staging,sysmon_event1,</group>
+  </rule>
+
+  <!-- ===== Windows — Tier 3: Archive Transferred to External System ===== -->
+
+  <rule id="117800" level="14">
+    <if_sid>61603</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(curl|wget|Invoke-WebRequest|Invoke-RestMethod|scp|pscp|sftp|ftp|rclone|megacmd|winscp|azcopy)\s+.*\.(zip|7z|rar|tar|gz|tgz|bz2|xz|cab)\b</field>
+    <description>DLP: Archive file referenced in network transfer command — possible exfiltration of collected documents to external system.</description>
+    <mitre>
+      <id>T1048</id>
+      <id>T1567.002</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_doc_exfil_external,data_exfiltration,sysmon_event1,</group>
+  </rule>
+
+  <!-- ===== Linux — Tier 1: Document Collection in Local Folders ===== -->
+
+  <!-- Base rule: document file created in user home directory (for frequency counting) -->
+  <rule id="117801" level="3">
+    <if_sid>114136</if_sid>
+    <field name="eventdata.targetFilename" type="pcre2">(?i)^/home/[^/]+/.*\.(docx?|xlsx?|pptx?|pdf|csv|txt|rtf|odt|ods|odp)$</field>
+    <description>DLP: Linux document file created in user home directory — $(eventdata.targetFilename).</description>
+    <mitre>
+      <id>T1074.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_doc_collection,data_staging,linux,sysmon_event_11,</group>
+  </rule>
+
+  <!-- Frequency: bulk document collection in home directory -->
+  <rule id="117802" level="10" frequency="10" timeframe="300">
+    <if_matched_sid>117801</if_matched_sid>
+    <description>DLP: Linux bulk document collection detected — multiple documents created in user home directory within 5 minutes — possible local data staging.</description>
+    <mitre>
+      <id>T1074.001</id>
+      <id>T1119</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_doc_collection,data_staging,linux,sysmon_event_11,</group>
+  </rule>
+
+  <!-- ===== Linux — Tier 2: Archive of Collected Documents ===== -->
+
+  <!-- Sysmon Event 11: archive file created in user home directory (not temp) -->
+  <rule id="117803" level="12">
+    <if_sid>114136</if_sid>
+    <field name="eventdata.targetFilename" type="pcre2">(?i)^/home/[^/]+/.*\.(zip|7z|rar|tar|gz|tgz|bz2|xz|cab)$</field>
+    <description>DLP: Linux archive file created in user home directory by $(eventdata.image) — possible compression of collected documents for exfiltration.</description>
+    <mitre>
+      <id>T1560.001</id>
+      <id>T1074.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_doc_archive,data_staging,linux,sysmon_event_11,</group>
+  </rule>
+
+  <!-- Sysmon Event 1: archive command targeting user home directory -->
+  <rule id="117804" level="12">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)(tar\s+.*c[zvf]|zip\s+-r|7z\s+a|gzip|bzip2|xz)\s+.*/home/[^/]+/</field>
+    <description>DLP: Linux archive command targeting user home directory — possible compression of locally collected documents.</description>
+    <mitre>
+      <id>T1560.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_doc_archive,data_staging,linux,sysmon_event1,</group>
+  </rule>
+
+  <!-- ===== Linux — Tier 3: Archive Transferred to External System ===== -->
+
+  <rule id="117805" level="14">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)(curl|wget|scp|sftp|rsync|rclone|ftp|megacmd|megacopy)\s+.*\.(zip|7z|rar|tar|gz|tgz|bz2|xz|cab)\b</field>
+    <description>DLP: Linux archive file referenced in network transfer command — possible exfiltration of collected documents to external system.</description>
+    <mitre>
+      <id>T1048</id>
+      <id>T1567.002</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_doc_exfil_external,data_exfiltration,linux,sysmon_event1,</group>
+  </rule>
+
+  <!-- ===== macOS — Tier 1: Document Collection in Local Folders ===== -->
+
+  <!-- Base rule: document file created in user directory (for frequency counting) -->
+  <rule id="117806" level="3">
+    <if_sid>114136</if_sid>
+    <field name="eventdata.targetFilename" type="pcre2">(?i)^/Users/[^/]+/.*\.(docx?|xlsx?|pptx?|pdf|csv|txt|rtf|odt|ods|odp)$</field>
+    <description>DLP: macOS document file created in user directory — $(eventdata.targetFilename).</description>
+    <mitre>
+      <id>T1074.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_doc_collection,data_staging,macos,sysmon_event_11,</group>
+  </rule>
+
+  <!-- Frequency: bulk document collection in user directory -->
+  <rule id="117807" level="10" frequency="10" timeframe="300">
+    <if_matched_sid>117806</if_matched_sid>
+    <description>DLP: macOS bulk document collection detected — multiple documents created in user directory within 5 minutes — possible local data staging.</description>
+    <mitre>
+      <id>T1074.001</id>
+      <id>T1119</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_doc_collection,data_staging,macos,sysmon_event_11,</group>
+  </rule>
+
+  <!-- ===== macOS — Tier 2: Archive of Collected Documents ===== -->
+
+  <!-- Sysmon Event 11: archive file created in user directory (not temp) -->
+  <rule id="117808" level="12">
+    <if_sid>114136</if_sid>
+    <field name="eventdata.targetFilename" type="pcre2">(?i)^/Users/[^/]+/.*\.(zip|7z|rar|tar|gz|tgz|bz2|xz|cab|dmg)$</field>
+    <description>DLP: macOS archive file created in user directory by $(eventdata.image) — possible compression of collected documents for exfiltration.</description>
+    <mitre>
+      <id>T1560.001</id>
+      <id>T1074.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_doc_archive,data_staging,macos,sysmon_event_11,</group>
+  </rule>
+
+  <!-- Sysmon Event 1: archive command targeting user directory -->
+  <rule id="117809" level="12">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)(tar\s+.*c[zvf]|zip\s+-r|7z\s+a|ditto\s+-c|hdiutil\s+create)\s+.*/Users/[^/]+/</field>
+    <description>DLP: macOS archive command targeting user directory — possible compression of locally collected documents.</description>
+    <mitre>
+      <id>T1560.001</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_doc_archive,data_staging,macos,sysmon_event1,</group>
+  </rule>
+
+  <!-- ===== macOS — Tier 3: Archive Transferred to External System ===== -->
+
+  <rule id="117810" level="14">
+    <if_sid>114132</if_sid>
+    <field name="eventdata.commandLine" type="pcre2">(?i)(curl|wget|scp|sftp|rsync|rclone|ftp|megacmd|megacopy)\s+.*\.(zip|7z|rar|tar|gz|tgz|bz2|xz|cab|dmg)\b</field>
+    <field name="eventdata.image" type="pcre2">(?i)^\/(usr\/bin|usr\/local\/bin|opt\/homebrew)</field>
+    <description>DLP: macOS archive file referenced in network transfer command — possible exfiltration of collected documents to external system.</description>
+    <mitre>
+      <id>T1048</id>
+      <id>T1567.002</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_doc_exfil_external,data_exfiltration,macos,sysmon_event1,</group>
+  </rule>
+
+  <!-- ===== Office 365 — Document Collection & Archive Exfiltration Pipeline ===== -->
+
+  <!-- Tier 1: Base rule for file copy/move/upload in OneDrive/SharePoint (for frequency counting) -->
+  <rule id="117811" level="3">
+    <if_sid>108000</if_sid>
+    <field name="office_365.Operation" type="pcre2">(?i)^(FileUploaded|FileCopied|FileMoved|FileSyncUploadedFull)$</field>
+    <description>DLP: Office 365 file operation — $(office_365.Operation) on $(office_365.SourceFileName).</description>
+    <options>no_full_log</options>
+    <group>dlp_doc_collection,data_staging,</group>
+  </rule>
+
+  <!-- Tier 1: Frequency — bulk file collection in OneDrive/SharePoint -->
+  <rule id="117812" level="10" frequency="10" timeframe="300">
+    <if_matched_sid>117811</if_matched_sid>
+    <description>DLP: Bulk file collection in Office 365 — multiple files uploaded, copied, or moved within 5 minutes — possible document staging.</description>
+    <mitre>
+      <id>T1074.001</id>
+      <id>T1119</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_doc_collection,data_staging,</group>
+  </rule>
+
+  <!-- Tier 2: Archive file uploaded to OneDrive/SharePoint -->
+  <rule id="117813" level="12">
+    <if_sid>108000</if_sid>
+    <field name="office_365.Operation" type="pcre2">(?i)^(FileUploaded|FileSyncUploadedFull|FileCopied|FileMoved)$</field>
+    <field name="office_365.SourceFileName" type="pcre2">(?i)\.(zip|7z|rar|tar|gz|tgz|bz2|xz|cab)$</field>
+    <description>DLP: Archive file uploaded to Office 365 — $(office_365.SourceFileName) — possible staging of compressed document collection.</description>
+    <mitre>
+      <id>T1560.001</id>
+      <id>T1567</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_doc_archive,data_staging,</group>
+  </rule>
+
+  <!-- Tier 3: Archive file shared externally from Office 365 -->
+  <rule id="117814" level="14">
+    <if_sid>108000</if_sid>
+    <field name="office_365.Operation" type="pcre2">(?i)^(SharingSet|AnonymousLinkCreated|CompanyLinkCreated|SharingInvitationCreated)$</field>
+    <match type="pcre2">(?i)\.(zip|7z|rar|tar|gz|tgz|bz2|xz|cab)\b</match>
+    <description>DLP: Archive file shared externally from Office 365 — possible exfiltration of collected documents to external party.</description>
+    <mitre>
+      <id>T1048</id>
+      <id>T1567</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_doc_exfil_external,data_exfiltration,</group>
+  </rule>
+
+  <!-- ===== Google Workspace — Document Collection & Archive Exfiltration Pipeline ===== -->
+
+  <!-- Tier 1: Base rule for file upload/copy/move in Google Drive (for frequency counting) -->
+  <rule id="117815" level="3">
+    <if_sid>108501</if_sid>
+    <field name="events.name" type="pcre2">(?i)^(upload|copy|move|create|edit)$</field>
+    <description>DLP: Google Drive file operation — $(events.name) — file activity in Drive.</description>
+    <options>no_full_log</options>
+    <group>dlp_doc_collection,data_staging,</group>
+  </rule>
+
+  <!-- Tier 1: Frequency — bulk file collection in Google Drive -->
+  <rule id="117816" level="10" frequency="10" timeframe="300">
+    <if_matched_sid>117815</if_matched_sid>
+    <description>DLP: Bulk file collection in Google Drive — multiple files uploaded, copied, or moved within 5 minutes — possible document staging.</description>
+    <mitre>
+      <id>T1074.001</id>
+      <id>T1119</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_doc_collection,data_staging,</group>
+  </rule>
+
+  <!-- Tier 2: Archive file uploaded to Google Drive -->
+  <rule id="117817" level="12">
+    <if_sid>108501</if_sid>
+    <field name="events.name" type="pcre2">(?i)^(upload|copy|move|create)$</field>
+    <match type="pcre2">(?i)\.(zip|7z|rar|tar|gz|tgz|bz2|xz|cab)\b</match>
+    <description>DLP: Archive file uploaded to Google Drive — possible staging of compressed document collection.</description>
+    <mitre>
+      <id>T1560.001</id>
+      <id>T1567</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_doc_archive,data_staging,</group>
+  </rule>
+
+  <!-- Tier 3: Archive file shared externally from Google Drive -->
+  <rule id="117818" level="14">
+    <if_sid>108501</if_sid>
+    <field name="events.name" type="pcre2">(?i)^(change_document_access_scope|change_acl_editors|change_user_access)$</field>
+    <match type="pcre2">(?i)\.(zip|7z|rar|tar|gz|tgz|bz2|xz|cab)\b</match>
+    <description>DLP: Archive file shared externally from Google Drive — possible exfiltration of collected documents to external party.</description>
+    <mitre>
+      <id>T1048</id>
+      <id>T1567</id>
+    </mitre>
+    <options>no_full_log</options>
+    <group>dlp_doc_exfil_external,data_exfiltration,</group>
+  </rule>
+
+  <!-- ===== Synology NAS — Document Collection & Archive Exfiltration Pipeline ===== -->
+
+  <!-- Tier 1: Base rule for document file operation on NAS (for frequency counting) -->
+  <rule id="117819" level="3">
+    <if_sid>107150</if_sid>
+    <field name="data" type="pcre2">(?i)\.(docx?|xlsx?|pptx?|pdf|csv|txt|rtf|odt|ods|odp)$</field>
+    <description>DLP: Document file operation on Synology NAS.</description>
+    <group>dlp_doc_collection,dlp_synology,</group>
+  </rule>
+
+  <!-- Tier 1: Frequency — bulk document collection on NAS -->
+  <rule id="117820" level="10" frequency="10" timeframe="300">
+    <if_matched_sid>117819</if_matched_sid>
+    <same_source_ip />
+    <description>DLP: Bulk document collection on Synology NAS — multiple document files operated on within 5 minutes — possible local data staging.</description>
+    <mitre>
+      <id>T1074.001</id>
+      <id>T1119</id>
+    </mitre>
+    <group>dlp_doc_collection,dlp_synology,data_staging,</group>
+  </rule>
+
+  <!-- Tier 3: Archive file on NAS moved to external destination (chains from 150204: archive created on NAS) -->
+  <rule id="117821" level="14">
+    <if_sid>117781</if_sid>
+    <field name="data" type="pcre2">(?i)/(USB|External|Remote|Cloud|backup|offsite)</field>
+    <description>DLP: Archive file on Synology NAS moved to external or off-site destination — possible exfiltration of collected documents.</description>
+    <mitre>
+      <id>T1048</id>
+      <id>T1567</id>
+    </mitre>
+    <group>dlp_doc_exfil_external,dlp_synology,data_exfiltration,</group>
+  </rule>
+
+</group>

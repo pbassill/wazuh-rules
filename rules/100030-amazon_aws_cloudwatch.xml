@@ -1,0 +1,139 @@
+<group name="amazon,aws,cloudwatch,awswaf,">
+
+  <rule id="100030" level="1">
+    <decoded_as>json</decoded_as>
+    <location>Wazuh-AWS$</location>
+    <options>no_full_log</options>
+    <description>Wazuh AWS Integration</description>
+  </rule>
+
+  <rule id="100031" level="3">
+    <if_sid>100030</if_sid>
+    <field name="httpSourceName">^ALB$</field>
+    <options>no_full_log</options>
+    <description>AWS WAF Event - WAF Action $(action) By Rule Type: $(terminatingRuleType)</description>
+    <group>awswaf,</group>
+  </rule>
+
+  <!-- Quiet: any WAF event (heartbeat base) -->
+  <rule id="100032" level="0">
+    <if_sid>100030</if_sid>
+    <options>no_full_log</options>
+    <description>AWS WAF - event observed (heartbeat base).</description>
+    <group>awswaf,</group>
+  </rule>
+
+  <!-- Action classifiers (quiet) -->
+  <rule id="100033" level="0">
+    <if_sid>100031</if_sid>
+    <match type="pcre2">"action"\s*:\s*"BLOCK"</match>
+    <options>no_full_log</options>
+    <description>AWS WAF - BLOCK action.</description>
+    <group>awswaf,awswaf_block,</group>
+  </rule>
+
+  <rule id="100034" level="0">
+    <if_sid>100031</if_sid>
+    <match type="pcre2">"action"\s*:\s*"ALLOW"</match>
+    <options>no_full_log</options>
+    <description>AWS WAF - ALLOW action.</description>
+    <group>awswaf,awswaf_allow,</group>
+  </rule>
+
+  <rule id="100035" level="0">
+    <if_sid>100031</if_sid>
+    <match type="pcre2">"action"\s*:\s*"(CAPTCHA|CHALLENGE)"</match>
+    <options>no_full_log</options>
+    <description>AWS WAF - Challenge action.</description>
+    <group>awswaf,awswaf_challenge,</group>
+  </rule>
+
+  <!-- Level 3: heartbeat / proof of collection (1 per hour, per location) -->
+  <rule id="100039" level="3" frequency="2" timeframe="120">
+    <if_matched_sid>100032</if_matched_sid>
+    #<same_location />
+    <description>AWS WAF - Logs being collected successfully (hourly heartbeat).</description>
+    <group>awswaf,collection_ok,</group>
+    <options>no_full_log</options>
+  </rule>
+
+  <!-- sensitive/admin probes -->
+  <rule id="100040" level="12">
+    <if_sid>100031</if_sid>
+    <match type="pcre2">"uri"\s*:\s*"\/(wp-login\.php|wp-admin|phpmyadmin|admin|administrator|\.env|cgi-bin)</match>
+    <description>AWS WAF - Sensitive path probe detected.</description>
+    <group>awswaf,recon,</group>
+  </rule>
+
+  <!-- Keep unusual methods informational unless you want to page on it -->
+  <rule id="100041" level="10">
+    <if_sid>100031</if_sid>
+    <match type="pcre2">"httpMethod"\s*:\s*"(PUT|DELETE|PATCH)"</match>
+    <description>AWS WAF - Unusual HTTP method observed.</description>
+    <group>awswaf,recon,</group>
+  </rule>
+
+  <!-- traversal/LFI -->
+  <rule id="100042" level="14">
+    <if_sid>100031</if_sid>
+    <match type="pcre2">"args"\s*:\s*".*(\.\.\/|%2e%2e%2f|\/etc\/passwd|%2fetc%2fpasswd|%5c%5c|%255c%255c).*</match>
+    <description>AWS WAF - Possible traversal/LFI indicators in args.</description>
+    <group>awswaf,web_attack,traversal,</group>
+  </rule>
+
+  <!-- SQLi -->
+  <rule id="100043" level="14">
+    <if_sid>100031</if_sid>
+    <match type="pcre2">"args"\s*:\s*".*(union(\+|%20)select|'\s*or\s*1=1|%27\s*or\s*1%3d1).*</match>
+    <description>AWS WAF - Possible SQLi indicators in args.</description>
+    <group>awswaf,web_attack,sqli,</group>
+  </rule>
+
+  <!-- XSS (XML-safe: &lt;) -->
+  <rule id="100044" level="13">
+    <if_sid>100031</if_sid>
+    <match type="pcre2">"args"\s*:\s*".*(&lt;script|%3cscript|onerror=|%22%3e%3csvg).*</match>
+    <description>AWS WAF - Possible XSS indicators in args.</description>
+    <group>awswaf,web_attack,xss,</group>
+  </rule>
+
+  <!-- Suspicious UA: keep below SOC threshold by default -->
+  <rule id="100045" level="8">
+    <if_sid>100031</if_sid>
+    <match type="pcre2">"User-Agent"\s*:\s*"(curl\/|python-requests|wget\/|Go-http-client|libwww-perl|sqlmap|nikto|masscan|nmap|zgrab|httpx|Apache-HttpClient)</match>
+    <description>AWS WAF - Suspicious/automated User-Agent observed.</description>
+    <group>awswaf,recon,</group>
+  </rule>
+
+  <!-- rate-based rule triggered -->
+  <rule id="100046" level="15">
+    <if_sid>100031</if_sid>
+    <match type="pcre2">"rateBasedRuleList"\s*:\s*\[\s*\{</match>
+    <description>AWS WAF - Rate-based rule triggered (probable bot/flood).</description>
+    <group>awswaf,attack,rate_limit,</group>
+  </rule>
+
+  <!-- Non-terminating matches: informational visibility -->
+  <rule id="100047" level="6">
+    <if_sid>100031</if_sid>
+    <match type="pcre2">"nonTerminatingMatchingRules"\s*:\s*\[\s*\{</match>
+    <description>AWS WAF - Non-terminating rule matches present.</description>
+    <group>awswaf,monitoring,</group>
+  </rule>
+
+  <!-- spike in BLOCK actions (batch-safe) -->
+  <rule id="100048" level="14" frequency="200" timeframe="300">
+    <if_matched_sid>100033</if_matched_sid>
+    <description>AWS WAF - Spike in BLOCK actions (200 in 5m).</description>
+    <group>awswaf,attack,</group>
+  </rule>
+
+  <!-- terminatingRuleId spike: mostly tuning / detection engineering -->
+
+  <rule id="100049" level="8" frequency="200" timeframe="600">
+    <if_matched_sid>100031</if_matched_sid>
+    <same_field>terminatingRuleId</same_field>
+    <description>AWS WAF - Spike in terminatingRuleId=$(terminatingRuleId) (200 in 10m).</description>
+    <group>awswaf,monitoring,</group>
+  </rule>
+</group>

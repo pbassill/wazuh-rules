@@ -1,0 +1,68 @@
+<group name="synology,syslog,">
+  <!-- Base rule to match Synology logs -->
+  <rule id="101360" level="0">
+    <program_name>synologyevent</program_name>
+    <description>Synology NAS log detected</description>
+  </rule>
+
+  <!-- Login Success -->
+  <rule id="101361" level="3">
+    <if_sid>101360</if_sid>
+    <match>login succeeded</match>
+    <description>Synology NAS: Login succeeded</description>
+    <group>authentication_success,</group>
+  </rule>
+
+  <!-- Login Failure -->
+  <rule id="101362" level="10">
+    <if_sid>101360</if_sid>
+    <match>login failed</match>
+    <description>Synology NAS: Login failed</description>
+    <group>authentication_failed,</group>
+  </rule>
+
+  <!-- System Reboot -->
+  <rule id="101363" level="5">
+    <if_sid>101360</if_sid>
+    <match>System started</match>
+    <description>Synology NAS: System startup detected</description>
+  </rule>
+
+  <!-- Volume Error -->
+  <rule id="101364" level="10">
+    <if_sid>101360</if_sid>
+    <match>volume.*error</match>
+    <description>Synology NAS: Volume error detected</description>
+    <group>hardware,</group>
+  </rule>
+
+  <!-- Drive Failure -->
+  <rule id="101365" level="12">
+    <if_sid>101360</if_sid>
+    <match>drive.*failed</match>
+    <description>Synology NAS: Drive failure</description>
+    <group>hardware,</group>
+  </rule>
+
+  <!-- Firmware Upgrade -->
+  <rule id="101366" level="3">
+    <if_sid>101360</if_sid>
+    <match>firmware upgrade completed</match>
+    <description>Synology NAS: Firmware upgrade completed</description>
+    <group>update,</group>
+  </rule>
+  
+  <!-- Multiple login failures followed by success -->
+  <rule id="101367" level="16" timeframe="360">
+    <if_group>authentication_success</if_group>
+    <if_matched_group>authentication_failed</if_matched_group>
+    <same_source_ip />
+    <description>Synology NAS: Multiple login failures followed by a success</description>
+    <mitre>
+      <id>T1078</id>
+      <id>T1110</id>
+    </mitre>
+    <group>authentication_bruteforce,pci_dss_10.2.4,pci_dss_10.2.5,pci_dss_11.4,gpg13_7.1,gpg13_7.8,gdpr_IV_35.7.d,gdpr_IV_32.2,hipaa_164.312.b,nist_800_53_AU.14,nist_800_53_AC.7,nist_800_53_SI.4,tsc_CC6.1,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+  
+</group>

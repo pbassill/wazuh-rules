@@ -1,0 +1,130 @@
+<!--
+  Google Workspace Audit Log Rules
+  Rule IDs: 108500–108599
+
+  Provides base detection for Google Workspace audit events
+  ingested via the Wazuh gcloud module or custom integration.
+
+  Google Workspace Applications Covered:
+    admin    — Admin console activities
+    drive    — Google Drive file operations
+    login    — Authentication events
+    token    — OAuth token activities
+    groups   — Google Groups management
+    mobile   — Mobile device management
+    calendar — Calendar sharing and access
+    chat     — Google Chat activities
+    meet     — Google Meet activities
+    rules    — DLP and alerting rules
+    saml     — SAML SSO events
+    user_accounts — User account management
+-->
+
+<group name="google_workspace,">
+
+  <!-- ===== Base Google Workspace Rule ===== -->
+
+  <rule id="108500" level="3">
+    <decoded_as>json</decoded_as>
+    <field name="kind">admin#reports#activity</field>
+    <description>Google Workspace $(id.applicationName) audit event.</description>
+    <options>no_full_log</options>
+  </rule>
+
+  <!-- ===== Google Drive Events ===== -->
+
+  <rule id="108501" level="3">
+    <if_sid>108500</if_sid>
+    <field name="id.applicationName">drive</field>
+    <description>Google Workspace Drive: $(events.name) event.</description>
+    <options>no_full_log</options>
+  </rule>
+
+  <!-- ===== Google Admin Events ===== -->
+
+  <rule id="108510" level="5">
+    <if_sid>108500</if_sid>
+    <field name="id.applicationName">admin</field>
+    <description>Google Workspace Admin: $(events.name) event.</description>
+    <mitre>
+      <id>T1078</id>
+    </mitre>
+    <options>no_full_log</options>
+  </rule>
+
+  <!-- ===== Google Login Events ===== -->
+
+  <rule id="108520" level="3">
+    <if_sid>108500</if_sid>
+    <field name="id.applicationName">login</field>
+    <description>Google Workspace Login: $(events.name) event.</description>
+    <mitre>
+      <id>T1078</id>
+    </mitre>
+    <options>no_full_log</options>
+  </rule>
+
+  <!-- ===== Google Token Events ===== -->
+
+  <rule id="108530" level="5">
+    <if_sid>108500</if_sid>
+    <field name="id.applicationName">token</field>
+    <description>Google Workspace Token: $(events.name) event.</description>
+    <mitre>
+      <id>T1528</id>
+    </mitre>
+    <options>no_full_log</options>
+  </rule>
+
+  <!-- ===== Google Groups Events ===== -->
+
+  <rule id="108540" level="3">
+    <if_sid>108500</if_sid>
+    <field name="id.applicationName">groups</field>
+    <description>Google Workspace Groups: $(events.name) event.</description>
+    <options>no_full_log</options>
+  </rule>
+
+  <!-- ===== Google Rules (DLP) Events ===== -->
+
+  <rule id="108550" level="5">
+    <if_sid>108500</if_sid>
+    <field name="id.applicationName">rules</field>
+    <description>Google Workspace Rules: $(events.name) event.</description>
+    <options>no_full_log</options>
+  </rule>
+
+  <!-- ===== Google User Accounts Events ===== -->
+
+  <rule id="108560" level="3">
+    <if_sid>108500</if_sid>
+    <field name="id.applicationName">user_accounts</field>
+    <description>Google Workspace User Accounts: $(events.name) event.</description>
+    <mitre>
+      <id>T1136</id>
+    </mitre>
+    <options>no_full_log</options>
+  </rule>
+
+  <!-- ===== Google Mobile Events ===== -->
+
+  <rule id="108570" level="3">
+    <if_sid>108500</if_sid>
+    <field name="id.applicationName">mobile</field>
+    <description>Google Workspace Mobile: $(events.name) event.</description>
+    <options>no_full_log</options>
+  </rule>
+
+  <!-- ===== Google SAML Events ===== -->
+
+  <rule id="108580" level="5">
+    <if_sid>108500</if_sid>
+    <field name="id.applicationName">saml</field>
+    <description>Google Workspace SAML: $(events.name) event.</description>
+    <mitre>
+      <id>T1078</id>
+    </mitre>
+    <options>no_full_log</options>
+  </rule>
+
+</group>
